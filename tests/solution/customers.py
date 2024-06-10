@@ -1,6 +1,7 @@
 from user import User
 import mariadb
 from typing import List
+from products import Product
 
 class Customer(User):
     INSERT_CUSTOMER_INTO_DB_TEMPLATE = """INSERT INTO Customer (username, password, name, surname, email, date_of_birth, shipping_address, credit_card_number) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
@@ -71,7 +72,7 @@ class Customer(User):
     # Wishlist Implementation
     ADD_TO_WISHLIST_TEMPLATE = """INSERT INTO Wishlist (username, product_id) VALUES (%s, %s)"""
     REMOVE_FROM_WISHLIST_TEMPLATE = """DELETE FROM Wishlist WHERE username = %s AND product_id = %s"""
-    GET_WISHLIST_TEMPLATE = """SELECT product_id FROM Wishlist WHERE username = %s"""
+    GET_WISHLIST_TEMPLATE = """SELECT p.product_id, p.name, p.category, p.price_per_unit, p.expiry_date, p.available_units, p.max_units, p.supplier_id FROM Wishlist w JOIN Product p ON w.product_id = p.product_id WHERE w.customer_username = %s AND p.expiry_date > CURDATE() AND p.available_units > 0"""
 
     def add_to_wishlist(self, connection, product_id: int):
         cursor = connection.cursor()
@@ -92,4 +93,7 @@ class Customer(User):
     def get_wishlist(self, connection) -> List[int]:
         cursor = connection.cursor()
         cursor.execute(self.GET_WISHLIST_TEMPLATE, (self.username,))
-        return [product_id for product_id, in cursor]
+        return [
+            Product(product_id, name, category, price_per_unit, expiry_date, available_units, max_units, supplier_id)
+            for product_id, name, category, price_per_unit, expiry_date, available_units, max_units, supplier_id in cursor
+        ]
