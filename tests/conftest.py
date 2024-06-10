@@ -103,7 +103,7 @@ def connection_factory(mariadb_host, mariadb_port, mariadb):
                 cursor = connection.cursor()
                 cursor.execute("select database();")
                 record = cursor.fetchone()
-                # print("You're connected to database: ", record)
+                print("You're connected to database: ", record)
 
                 yield connection
 
