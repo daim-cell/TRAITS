@@ -1,0 +1,36 @@
+  - name: pycoverage
+  # You may pin to the exact commit or the version.
+  # uses: JotaFan/pycoverage@e3e5ae20d7ef09a7c7659757c5fa3d8956f90712
+  uses: JotaFan/pycoverage@v1.1.0
+  with:
+    # Path to the requirements file if you use pip. ./requirements.txt by default
+    requirements-file: # optional, default is ./requirements.txt
+    # root directory to recursively search for .py files
+    pytest-root-dir: ./DB project update - TRAITS
+    # directory with pytest tests. if left empty will identify test(s) dir by default
+    pytest-tests-dir: ./DB project update - TRAITS/tests
+    # list of directories and/or files to ignore
+    cov-omit-list: # optional, default is 
+    # fail if any single file coverage is less than threshold
+    cov-threshold-single: # optional, default is 0
+    # fail if the total coverage is less than threshold
+    cov-threshold-total: # optional, default is 0
+    # Add support for async tests
+    async-tests: # optional
+    # Poetry group names with the dependencies for the tests.
+    poetry-groups: # optional, default is dev,tests
+    # Package extras with the dependencies for the tests, or dev-requirement file if pip
+    package-extras: # optional, default is dev,tests
+    # Output path to write the coverage badge.
+    output: # optional, default is badges/coverage.svg
+    # Overwrite an existing coverage badge.
+    overwrite: # optional, default is true
+    # GitHub writing token
+    github_token: # optional, default is 
+    # Working branch
+    working_branch: # optional, default is main
+    # Boolean to either make a commit on the coverage badge or not
+    commit_badge: # optional
+    # Version of poetry. Latest if not specified.
+    poetry-version: # optional
+          
