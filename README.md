@@ -186,128 +186,81 @@ The delay is computed as the difference between when the train became non-operat
 
 We assume that:
 
-- schedules are daily (all the weekdays are the same)
-- schedules have validity (from a starting day to an ending day)
-- at the end of each day, any problem is (automatically) resolved; thus, no delay affects the schedules of the next days
+- simple and nested transactions for reading, creating, updating and deleting elements from the database;
+- queries that makes use of grouping and sorting; 
+- transactions with the right isolation level(s)
+- consistency checks and foreign keys management (cascade, etc.)
+- views;
+- users definition and grant permissions;
+- database triggers;
 
-Scheduling trains must be physically feasible and follow these ground rules:
+### Recommendation System
 
-- A train cannot be in two places at the same time!
-- A train cannot teleport:
-    - trains cannot travel faster than the tracks/link allow/s
-    - trains can travel only by passing by directly connected stations
-    - trains always stop at all stations, i.e., they cannot pass through a station without stopping
-    - A train stopping in one station cannot restart from another one
+The recommendation system must suggest products that clients are likely to buy after they bought other products.
 
-- A train must stop at the end station(s) for at least 10 minutes before resuming operations (e.g., waiting time cannot be less than 10 minutes there)
-- To allow night operations, the train's last stop in a day must be at least six hours before the first start of the train the next day. Consequently, a schedule must always end on the same day it is started
+The recommendation system is a special user of the RDBMS database. It can read some content from the RDBMS but cannot modify it.
 
-> NOTE: schedules are affected by train availability: if a train is deleted, the schedule is impossible. 
+The recommendation system offers the following APIs:
 
-## Utility methods
+`bulk_update(self, month: int, year: int)`
+`recommend(self, products: List, day: int, month: int, year: int, limit: int):`
 
-Utility methods must be implemented in the `TraitsUtils` class under the `implementation` module.
-This class must extend the given interface class; however, you can implement in that class also any additional or utility method that you need for testing. For instance, methods that check seat availability (e.g., on a train, along a given connection), view trains' schedule on a day, check train statuses (some trains might be delayed or canceled), CRUD operations on the various entities (users, trains, stations) and more. 
+The call `bulk_update` "imports" data from the RDBMS to build/update the graph. Data may contain duplicate entries; thus, those might be handled properly.
+
+The call `recommend` generates the recommendations. In a nutshell, given a set of products p1, p2, ..., pn bought by a client c1 on date d1, the system uses the graph database to identify all the products P1, P2, ..., Pk (different than p1, p2, ..., pn) that other clients (c2, ..., cn) have bought together with p1 or p2 or ... pn in the *7* days before the purchase date d1.
+
+Those products should be sorted by decreasing popularity, i.e., the amount of times they have been bought within *7* days from the purchase date d1. 
+
+Finally, since the amount of products recommended by the system may be very large, the system should return only a limited number of products (`limit = k`).
+
+For example, given the following list of purchases done by three clients over 6 days
+
+| Client | Date | Cart       |
+|--------|------|------------|
+|     c1 |   1  | p1, p2     |
+|     c2 |   1  | p1, p3     |
+|     c2 |   2  | p1, p4     |
+|     c3 |   4  | p2, p3, p4 |
+|     c1 |   6  | p1, p2     |
+
+The recommendation of a single product for a client that buys p2 and p4 on date 7, i.e.,  `recommend(products=[p2,p4],date=7,limit=1)`, is `[p1]`.
+
+> Note: the syntax is only illustrative!
+
+#### Explanation:
+
+The recommendation date is 7, so we need to look at the 7 days before it (days 1 to 6).
+
+> NOTE: the recommendation date is excluded!
+
+During the period between date 1 and date 6:
+
+- Along with p2:
+
+    - c1 has bought p1 (on date 1)
+    - c3 has bought p3, p4 (on date 4)
+    - c1 has bought p1 (on date 6)
+
+- Along with p4:
+
+    - c2 has bought p1 (on date 2)
+    - c3 has bought p3 (on date 4)
+
+Thus, p1 and p3 have been bought with p2 or p4.
+
+We need to sort p1 and p3 by their popularity:
+
+- p1 has been bought 3 times
+    - c1 on date 1
+    - c2 on date 2
+    - c1 on date 6   
+- p3 has been bought 1 time
+    - c3 on date 4
+
+Thus, p1 is more popular than p3.
+
+Finally, we return the first (i.e., `limit=1`) of the sorted products, which is p1.
 
 
 
-The implementation of those methods must follow the general guidelines of the assignment: limit the use of Python as much as possible and rely on the functionalities provided by the databases as much as you can.
 
-## Testing
-
-We use `pytest` to test the solution. Test methods must be placed inside the `tests` folder in your project. Additional tests are located inside the `public/tests` folder. All the tests depend on MariaDB and Neo4J, since connections to those databases are required to instantiate both `Traits` and `UtilityTraits`.
-
-The following setup is viable (but not the only one!):
-
-Start MariaDB in docker. Be sure you set the root password as shown and open the network port:
-
-```bash 
-docker run --name mariadbtest -e MYSQL_ROOT_PASSWORD=root-pass -p 3306:3306 -d mariadb:10.6
-```
-
-Start Neo4J in docker. Be sure you set the network ports as shown and disable authentication:
-
-```bash 
-docker run -d --publish=7474:7474 --publish=7687:7687 --env NEO4J_AUTH=none neo4j:5.9.0
-```
-
-Wait a few seconds so the databases complete the startup.
-
-Execute the tests by running the following command from the root of your project:
-
-```python
-pytest
-```
-
-Initially, all the tests will not pass; that's fine. Implement step by step your solution and keep testing.
-
-
-## Hints
-
-1. The methods to implement are listed in the given code; however, some of their parameters may be underspecified (i.e., using `**kwargs`) to allow some flexibility in the implementation. 
-
-    >> Note: In case of problems, write a message on Teams and open an issue on the *public* repository so anyone can contribute and track it.
-
-2. To complete this assignment, you can use any of the following concepts:
-
-    - non-root users definition with specific permissions granted;
-    - simple and nested transactions for reading, creating, updating, and deleting elements from the database;
-    - queries that make use of grouping and sorting; 
-    - transactions with the right isolation level(s);
-    - consistency checks and references (cascade, etc.)
-    - views;
-    - database triggers;
-
-    >> NOTE: Performance is **not** a quality we are looking for; correctness is! So, do not waste precious time trying to optimize your queries to minimize execution time.
-
-3. The expected project structure is:
-
-    ```
-...
-├── tests
-│   ├── __init__.py
-│   ├── conftest.py
-│   └── test_personal.py
-├── traits
-│   ├── __init__.py
-│   └── implementation.py
-...
-```
-
-4. The content of the `implementation.py` module looks more or less like this:
-
-```python 
-# Import all the necessary classes from the public submodule:
-from public.traits.interface import TraitsInterface, TraitsUtilityInterface, TraitsKey, TrainStatus, SortingCriteria
-
-# Import all the necessary default configurations
-from public.traits.interface import BASE_USER_NAME, BASE_USER_PASS, ADMIN_USER_NAME, ADMIN_USER_PASS
-
-# Implement the utility class. Add any additional method that you need
-class TraitsUtility(TraitsUtilityInterface):
-    
-    def __init__(self, rdbms_connection, rdbms_admin_connection, neo4j_driver) -> None:
-        self.rdbms_connection = rdbms_connection
-        self.rdbms_admin_connection = rdbms_admin_connection
-        self.neo4j_driver = neo4j_driver
-
-    @staticmethod
-    def generate_sql_initialization_code() -> List[str]:
-        # Note: this code ensures that users are recreated as needed. You need to add the proper permissions. Also add here the statements to setup the database.
-        return [
-            f"DROP USER IF EXISTS '{ADMIN_USER_NAME}'@'%';"
-            f"DROP USER IF EXISTS '{BASE_USER_NAME}'@'%';"
-            f"CREATE USER '{ADMIN_USER_NAME}'@'%' IDENTIFIED BY '{ADMIN_USER_PASS}';",
-            f"CREATE USER '{BASE_USER_NAME}'@'%' IDENTIFIED BY '{BASE_USER_PASS}';",
-        ]
-
-    
-# Implement the main class that you need to implement
-class Traits(TraitsInterface):
-
-    def __init__(self, rdbms_connection, rdbms_admin_connection, neo4j_driver) -> None:
-        self.rdbms_connection = rdbms_connection
-        self.rdbms_admin_connection = rdbms_admin_connection
-        self.neo4j_driver = neo4j_driver
-
-    ```
