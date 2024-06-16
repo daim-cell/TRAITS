@@ -1,4 +1,4 @@
-  - name: pycoverage
+      - name: pycoverage
   # You may pin to the exact commit or the version.
   # uses: JotaFan/pycoverage@e3e5ae20d7ef09a7c7659757c5fa3d8956f90712
   uses: JotaFan/pycoverage@v1.1.0
