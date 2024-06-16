@@ -28,10 +28,10 @@ jobs:
     - name: Run tests with coverage
       run: |
         pip install pytest-cov
-        pytest --cov=./traits DB project update - TRAITS/tests/
+        pytest --cov=./traits_proj/tests/
         
     - name: Upload coverage report
       uses: actions/upload-artifact@v2
       with:
         name: coverage-report
-        path: DB project update - TRAITS/tests/.coverage
+        path: traits_proj/tests/.coverage
