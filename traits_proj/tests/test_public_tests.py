@@ -1,6 +1,6 @@
 # Import your implementation in the public tests
 from traits.implementation import Traits, TraitsUtility
-from public.traits.interface import TraitsKey, TrainStatus, SortingCriteria
+from traits.interface import TraitsKey, TrainStatus, SortingCriteria
 import pytest
 
 
