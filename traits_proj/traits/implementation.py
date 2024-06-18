@@ -1,18 +1,49 @@
 from typing import List, Tuple, Optional, Dict
 from traits.interface import TraitsUtilityInterface, TraitsInterface, TraitsKey, TrainStatus, SortingCriteria
-
+from traits.interface import BASE_USER_NAME, BASE_USER_PASS, ADMIN_USER_NAME, ADMIN_USER_PASS
+from datetime import datetime
 class TraitsUtility(TraitsUtilityInterface):
     def __init__(self, rdbms_connection, rdbms_admin_connection, neo4j_driver) -> None:
         self.rdbms_connection = rdbms_connection
         self.rdbms_admin_connection = rdbms_admin_connection
         self.neo4j_driver = neo4j_driver
 
-    def generate_sql_initialization_code(self) -> List[str]:
+    def generate_sql_initialization_code() -> List[str]:
         """
         Returns a list of string each one containing a SQL statement to setup the database.
         """
         # Implementation here
-        pass
+
+        return [
+            """ CREATE TABLE IF NOT EXISTS Trains (
+                train_id INT PRIMARY KEY,
+                train_name VARCHAR(255) NOT NULL,
+                capacity INT NOT NULL,
+                status VARCHAR(255) NOT NULL
+            );""",
+            """ CREATE TABLE IF NOT EXISTS Stations (
+                station_id INTEGER PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL
+            );""",
+            """ CREATE TABLE IF NOT EXISTS Trips (
+                trip_id INT PRIMARY KEY,
+                train_id INT NOT NULL,
+                starting_station_id INT NOT NULL,
+                ending_station_id INT NOT NULL,
+                start_time DATETIME NOT NULL,
+                end_time DATETIME NOT NULL,
+                FOREIGN KEY (train_id) REFERENCES Trains(train_id),
+                FOREIGN KEY (starting_station_id) REFERENCES Stations(station_id),
+                FOREIGN KEY (ending_station_id) REFERENCES Stations(station_id)
+            );""",
+            f"DROP USER IF EXISTS '{ADMIN_USER_NAME}'@'%';",
+            f"DROP USER IF EXISTS '{BASE_USER_NAME}'@'%';",
+            f"CREATE USER '{ADMIN_USER_NAME}'@'%' IDENTIFIED BY '{ADMIN_USER_PASS}';",
+            f"CREATE USER '{BASE_USER_NAME}'@'%' IDENTIFIED BY '{BASE_USER_PASS}';",
+            f"GRANT ALL PRIVILEGES ON test.* TO '{ADMIN_USER_NAME}'@'%';"
+            f"GRANT SELECT, INSERT, UPDATE ON test.* TO '{BASE_USER_NAME}'@'%';"
+
+        ]
 
     def get_all_users(self) -> List:
         """
@@ -30,6 +61,11 @@ class TraitsUtility(TraitsUtilityInterface):
 
 
 class Traits(TraitsInterface):
+    def __init__(self, rdbms_connection, rdbms_admin_connection, neo4j_driver) -> None:
+        self.rdbms_connection = rdbms_connection
+        self.rdbms_admin_connection = rdbms_admin_connection
+        self.neo4j_driver = neo4j_driver
+
     def search_connections(self, starting_station_key: TraitsKey, ending_station_key: TraitsKey,
                            travel_time_day: int = None, travel_time_month : int = None, travel_time_year : int = None,
                            is_departure_time=True,
@@ -44,14 +80,78 @@ class Traits(TraitsInterface):
         Raise a ValueError in case of errors and if the starting or ending stations are the same
         """
         # Implementation here
-        pass
+        if starting_station_key.to_string() == ending_station_key.to_string():
+            raise ValueError
+        
+        travel_time = datetime(travel_time_year, travel_time_month, travel_time_day) if travel_time_day or travel_time_month or travel_time_year else datetime.now()
+        travel_time_str = travel_time.strftime('%Y-%m-%dT%H:%M:%S')
 
+         # Build the Neo4j query
+        routes = self._execute_neo4j_query(starting_station_key.to_string(), ending_station_key.to_string(), travel_time_str, is_departure_time, sort_by, is_ascending, limit)
+        if len(routes) == 0:
+            raise ValueError
+        # Fetch additional details from MariaDB
+        detailed_routes = self._fetch_details_from_mariadb(routes)
+
+        return detailed_routes
+    
+    def _execute_neo4j_query(self, start_station, end_station, travel_time, is_departure_time, sort_by, is_ascending, limit):
+        sort_criteria = {
+            SortingCriteria.OVERALL_TRAVEL_TIME: "overallTravelTime",
+            SortingCriteria.NUMBER_OF_TRAIN_CHANGES: "numberOfTrains",
+            SortingCriteria.OVERALL_WAITING_TIME: "totalWaitingTime",
+            SortingCriteria.ESTIMATED_PRICE: "Price"
+        }
+
+        order_clause = "ASC" if is_ascending else "DESC"
+        time_constraint = f"r.departure_time  >= '{travel_time}'" if is_departure_time else f"r.arrival_time <= '{travel_time}'"
+        query = (f"""MATCH (start:Station {{name: '{start_station}'}})
+                MATCH (end:Station {{name: '{end_station}'}})
+                MATCH path = (start)-[TRIP*]->(end)
+                WHERE ALL(r in relationships(path) WHERE {time_constraint})
+                WITH path, 
+                    reduce(totalTravelTime = 0, r in relationships(path) | totalTravelTime + r.travel_time) AS overallTravelTime,
+                    length(path) AS numberOfTrains,
+                    duration.between('{travel_time}', relationships(path)[0].departure_time).minutes AS initialWaitingTime,
+                    reduce(waitingTime = 0, idx in range(0, length(path) - 2) |
+                waitingTime + duration.between(relationships(path)[idx].arrival_time, relationships(path)[idx + 1].departure_time).minutes) AS intWaitingTime
+                WITH path, overallTravelTime, numberOfTrains,initialWaitingTime, intWaitingTime,initialWaitingTime + intWaitingTime AS totalWaitingTime
+                RETURN path, overallTravelTime, numberOfTrains, totalWaitingTime,
+                    (overallTravelTime - intWaitingTime) / 2 + (numberOfTrains * 2) AS Price
+                ORDER BY {sort_criteria[sort_by]} {order_clause} 
+                LIMIT {limit}
+""")    
+        
+        with self.neo4j_driver.session() as session:
+            result = session.run(query)
+            routes = [record.data() for record in result]
+        return routes
+
+
+        
+
+    def _fetch_details_from_mariadb(self, routes):
+        detailed_routes = []
+        for route in routes:
+            details = []
+            for rel in route.relationships:
+                trip_id = rel['relationship']['properties']['trip_id']
+                self.rdbms_admin_connection.execute("SELECT * FROM Trips WHERE trip_id = ?", (trip_id,))
+                details.extend(self.rdbms_connection.fetchall())
+            detailed_routes.append(details)
+        return detailed_routes
+    
     def get_train_current_status(self, train_key: TraitsKey) -> Optional[TrainStatus]:
         """
         Check the status of a train. If the train does not exist returns None
         """
         # Implementation here
-        pass
+        cursor = self.rdbms_connection.cursor()
+        cursor.execute("SELECT t.status FROM Trains t WHERE t.train_name = %s", (train_key.to_string(),))
+        status = cursor.fetchone()
+        if status is not None:
+            return status
+        return None
 
     def buy_ticket(self, user_email: str, connection, also_reserve_seats=True):
         """
@@ -86,14 +186,41 @@ class Traits(TraitsInterface):
         Add new trains to the system with given code.
         """
         # Implementation here
-        pass
+        try:
+            cursor = self.rdbms_admin_connection.cursor()
+            insert_train_query = """
+            INSERT INTO Trains (train_name, capacity, status)
+            VALUES (%s, %s, %s)
+            """
+            cursor.execute(insert_train_query, ( train_key.to_string(),  train_capacity,train_status.OPERATIONAL))
+            cursor.commit()
+            return True
+        except:
+            return False
+        
+        
 
     def update_train_details(self, train_key: TraitsKey, train_capacity: Optional[int] = None, train_status: Optional[TrainStatus] = None) -> None:
         """
         Update the details of existing train if specified (i.e., not None), otherwise do nothing.
         """
         # Implementation here
-        pass
+        cursor = self.rdbms_admin_connection.cursor()
+        if train_capacity is not None:
+            update_capacity_query = """
+            UPDATE Trains SET capacity = %s WHERE train_id = %s
+            """
+            cursor.execute(update_capacity_query, (train_capacity, train_key))
+        
+        if train_status is not None:
+            update_status_query = """
+            UPDATE Trains SET status = %s WHERE train_id = %s
+            """
+            cursor.execute(update_status_query, (train_status, train_key))
+
+        cursor.commit()
+        
+        
 
     def delete_train(self, train_key: TraitsKey) -> None:
         """
