@@ -15,6 +15,15 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v2
 
+    - name: Start MariaDB in Docker
+      run: |
+        docker run --name mariadbtest -e MYSQL_ROOT_PASSWORD=root-pass -p 3306:3306 -d mariadb:10.6
+
+    - name: Start Neo4j in Docker
+      run: |
+        docker run -d --publish=7474:7474 --publish=7687:7687 --env NEO4J_AUTH=none neo4j:5.9.0
+
+
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
