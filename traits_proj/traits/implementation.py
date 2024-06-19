@@ -17,15 +17,14 @@ class TraitsUtility(TraitsUtilityInterface):
         return [
             """CREATE TABLE IF NOT EXISTS Users (
                 user_id INT PRIMARY KEY AUTO_INCREMENT,
-                username VARCHAR(255) NOT NULL UNIQUE,
-                password VARCHAR(255) NOT NULL,
-                email VARCHAR(255) NOT NULL UNIQUE
+                details VARCHAR(255) DEFAULT NULL,
+                email VARCHAR(255) NOT NULL UNIQUE CHECK (email REGEXP '^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$')
             );"""
             """ CREATE TABLE IF NOT EXISTS Trains (
                 train_id INT PRIMARY KEY AUTO_INCREMENT,
-                train_name VARCHAR(255) NOT NULL,
+                train_name VARCHAR(255) NOT NULL UNIQUE,
                 capacity INT NOT NULL,
-                status VARCHAR(255) NOT NULL
+                status INT NOT NULL
             );""",
             """ CREATE TABLE IF NOT EXISTS Stations (
                 station_id INTEGER PRIMARY KEY AUTO_INCREMENT,
@@ -38,7 +37,7 @@ class TraitsUtility(TraitsUtilityInterface):
                 ending_station_id INT NOT NULL,
                 start_time DATETIME NOT NULL,
                 end_time DATETIME NOT NULL,
-                FOREIGN KEY (train_id) REFERENCES Trains(train_id),
+                FOREIGN KEY (train_id) REFERENCES Trains(train_id) ON DELETE CASCADE,
                 FOREIGN KEY (starting_station_id) REFERENCES Stations(station_id),
                 FOREIGN KEY (ending_station_id) REFERENCES Stations(station_id)
             );""",
@@ -49,23 +48,30 @@ class TraitsUtility(TraitsUtilityInterface):
                 booking_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 reserved_seat BOOLEAN NOT NULL DEFAULT FALSE,
                 price INT NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES Users(user_id),
-                FOREIGN KEY (trip_id) REFERENCES Trips(trip_id)
+                FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
+                FOREIGN KEY (trip_id) REFERENCES Trips(trip_id) ON DELETE CASCADE
             );""",
             """CREATE TABLE IF NOT EXISTS Reservations (
                 reservation_id INT PRIMARY KEY AUTO_INCREMENT,
                 ticket_id INT NOT NULL,
-                FOREIGN KEY (ticket_id) REFERENCES Tickets(ticket_id)
+                FOREIGN KEY (ticket_id) REFERENCES Tickets(ticket_id) ON DELETE CASCADE
             );""",
-            """CREATE TABLE IF NOT EXISTS Purchases (
-                purchase_id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
-                ticket_id INT NOT NULL,
-                purchase_time DATETIME NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES Users(user_id),
-                FOREIGN KEY (ticket_id) REFERENCES Tickets(ticket_id)
-            );""",
-            # Trigger
+            # Views
+            """ CREATE VIEW Purchase AS
+                SELECT
+                    tk.booking_time AS purchase_time,
+                    tk.ticket_id, u.email AS user_email,
+                    s1.name AS starting_station_name, s2.name AS ending_station_name,
+                    tr.start_time, tr.end_time,
+                    tk.price AS connection_price,
+                    tk.reserved_seat
+                FROM
+                    Tickets tk
+                    JOIN Trips tr ON tk.trip_id = tr.trip_id
+                    JOIN Stations s1 ON tr.starting_station_id = s1.station_id
+                    JOIN Stations s2 ON tr.ending_station_id = s2.station_id
+                    JOIN Users u ON tk.user_id = u.user_id;""",
+            # Triggers
             """
             CREATE TRIGGER calculate_total_price_before_insert
             BEFORE INSERT ON Tickets
@@ -94,8 +100,11 @@ class TraitsUtility(TraitsUtilityInterface):
         """
         Return all the users stored in the database
         """
-        # Implementation here
-        pass
+        cursor = self.rdbms_admin_connection.cursor()
+        cursor.execute("SELECT * FROM Users")
+        users = cursor.fetchall()
+        return users
+        
 
     def get_all_schedules(self) -> List:
         """
@@ -105,12 +114,7 @@ class TraitsUtility(TraitsUtilityInterface):
         pass
 
     def _execute_neo4j_query(self, start_station, end_station, travel_time, is_departure_time, sort_by, is_ascending, limit):
-        sort_criteria = {
-            SortingCriteria.OVERALL_TRAVEL_TIME: "overallTravelTime",
-            SortingCriteria.NUMBER_OF_TRAIN_CHANGES: "numberOfTrains",
-            SortingCriteria.OVERALL_WAITING_TIME: "totalWaitingTime",
-            SortingCriteria.ESTIMATED_PRICE: "Price"
-        }
+        sort_criteria = ["overallTravelTime", "numberOfTrains","totalWaitingTime", "Price"]
 
         order_clause = "ASC" if is_ascending else "DESC"
         time_constraint = f"r.departure_time  >= '{travel_time}'" if is_departure_time else f"r.arrival_time <= '{travel_time}'"
@@ -127,7 +131,7 @@ class TraitsUtility(TraitsUtilityInterface):
                 WITH path, overallTravelTime, numberOfTrains,initialWaitingTime, intWaitingTime,initialWaitingTime + intWaitingTime AS totalWaitingTime
                 RETURN path, overallTravelTime, numberOfTrains, totalWaitingTime,
                     (overallTravelTime - intWaitingTime) / 2 + (numberOfTrains * 2) AS Price
-                ORDER BY {sort_criteria[sort_by]} {order_clause} 
+                ORDER BY {sort_criteria[sort_by.value]} {order_clause} 
                 LIMIT {limit}
 """)    
         
@@ -142,7 +146,7 @@ class TraitsUtility(TraitsUtilityInterface):
             details = []
             for rel in route.relationships:
                 trip_id = rel['relationship']['properties']['trip_id']
-                self.rdbms_admin_connection.execute("SELECT * FROM Trips WHERE trip_id = ?", (trip_id,))
+                self.rdbms_admin_connection.execute("SELECT * FROM Trips WHERE trip_id = ?;", (trip_id,))
                 details.extend(self.rdbms_connection.fetchall())
             detailed_routes.append(details)
         return detailed_routes
@@ -151,7 +155,7 @@ class TraitsUtility(TraitsUtilityInterface):
         cursor = self.rdbms_connection.cursor()
         
         # Fetch the train_id for the given trip_id
-        cursor.execute("SELECT train_id FROM Trips WHERE trip_id = %s", (trip_id,))
+        cursor.execute("SELECT train_id FROM Trips WHERE trip_id = %s;", (trip_id,))
         train_id = cursor.fetchone()
         if not train_id:
             raise ValueError("Trip does not exist")
@@ -159,7 +163,7 @@ class TraitsUtility(TraitsUtilityInterface):
         train_id = train_id[0]
 
         # Fetch the train capacity
-        cursor.execute("SELECT capacity FROM Trains WHERE train_id = %s", (train_id,))
+        cursor.execute("SELECT capacity FROM Trains WHERE train_id = %s;", (train_id,))
         train_capacity = cursor.fetchone()
         if not train_capacity:
             raise ValueError("Train does not exist")
@@ -171,7 +175,7 @@ class TraitsUtility(TraitsUtilityInterface):
             """
             SELECT COUNT(*) FROM Reservations R
             JOIN Tickets T ON R.ticket_id = T.ticket_id
-            WHERE T.trip_id = %s
+            WHERE T.trip_id = %s;
             """,
             (trip_id,)
         )
@@ -179,6 +183,29 @@ class TraitsUtility(TraitsUtilityInterface):
 
         available_seats = train_capacity - reserved_seats
         return available_seats
+
+    def search_station_keys(self, starting_station_key: int, ending_station_key: int) -> None:
+        """
+        Check if the starting and ending station keys exist in the Stations table.
+        Raise a ValueError if any of the keys do not exist.
+        """
+        cursor = self.rdbms_connection.cursor()
+        
+        # Query to check if the starting station key exists
+        cursor.execute("SELECT COUNT(*) FROM Stations WHERE station_id = %s", (starting_station_key,))
+        start_station_count = cursor.fetchone()[0]
+        
+        # Query to check if the ending station key exists
+        cursor.execute("SELECT COUNT(*) FROM Stations WHERE station_id = %s", (ending_station_key,))
+        end_station_count = cursor.fetchone()[0]
+
+        # Close the cursor
+        cursor.close()
+        
+        # Raise ValueError if any of the keys do not exist
+        if start_station_count == 0 or end_station_count == 0:
+            raise ValueError
+        
 
     
 class Traits(TraitsInterface):
@@ -204,14 +231,14 @@ class Traits(TraitsInterface):
         # Implementation here
         if starting_station_key.to_string() == ending_station_key.to_string():
             raise ValueError
-        
+        self.utility.search_station_keys(starting_station_key.to_string(), ending_station_key.to_string())
         travel_time = datetime(travel_time_year, travel_time_month, travel_time_day) if travel_time_day or travel_time_month or travel_time_year else datetime.now()
         travel_time_str = travel_time.strftime('%Y-%m-%dT%H:%M:%S')
 
          # Build the Neo4j query
         routes = self.utility._execute_neo4j_query(starting_station_key.to_string(), ending_station_key.to_string(), travel_time_str, is_departure_time, sort_by, is_ascending, limit)
         if len(routes) == 0:
-            raise ValueError
+            return []
         # Fetch additional details from MariaDB
         detailed_routes = self.utility._fetch_details_from_mariadb(routes)
 
@@ -223,10 +250,10 @@ class Traits(TraitsInterface):
         """
         # Implementation here
         cursor = self.rdbms_connection.cursor()
-        cursor.execute("SELECT t.status FROM Trains t WHERE t.train_name = %s", (train_key.to_string(),))
+        cursor.execute("SELECT t.status FROM Trains t WHERE t.train_name = %s;", (train_key.to_string(),))
         status = cursor.fetchone()
         if status is not None:
-            return status
+            return status[0]
         return None
 
     def buy_ticket(self, user_email: str, connection, also_reserve_seats=True):
@@ -237,7 +264,7 @@ class Traits(TraitsInterface):
         cursor = self.rdbms_connection.cursor()
         # Assuming the connection parameter is a trip object
         # Fetch trip details and calculate the total price
-        cursor.execute("SELECT * FROM Users WHERE email = %s", (user_email,))
+        cursor.execute("SELECT * FROM Users WHERE email = %s;", (user_email,))
         user = cursor.fetchone()
         if not user:
             raise ValueError("User does not exist")
@@ -245,7 +272,7 @@ class Traits(TraitsInterface):
 
         # Insert into Tickets table
         cursor.execute(
-            "INSERT INTO Tickets (user_id, trip_id, reserved_seat) VALUES (%s, %s, %s)",
+            "INSERT INTO Tickets (user_id, trip_id, reserved_seat) VALUES (%s, %s, %s);",
             (user.user_id, connection.trip_id, also_reserve_seats)
         )
         ticket_id = cursor.lastrowid
@@ -256,12 +283,12 @@ class Traits(TraitsInterface):
             if available_seats > 0:
                 # Insert into Reservations table
                 cursor.execute(
-                    "INSERT INTO Reservations (ticket_id) VALUES (%s)", (ticket_id,)
+                    "INSERT INTO Reservations (ticket_id) VALUES (%s);", (ticket_id,)
                 )
             else:
                 raise ValueError('No Seats to reserve')
 
-        cursor.commit()
+        self.rdbms_connection.commit()
 
     def get_purchase_history(self, user_email: str) -> List:
         """
@@ -269,28 +296,15 @@ class Traits(TraitsInterface):
         """
         cursor = self.rdbms_connection.cursor()
         # Implementation here
-        cursor.execute("SELECT * FROM Users WHERE email = %s", (user_email,))
+        cursor.execute("SELECT * FROM Users WHERE email = %s;", (user_email,))
         user = cursor.fetchone()
         if not user:
             return []
         cursor = self.rdbms_connection.cursor()
-        cursor.execute("""SELECT
-                            p.purchase_id, p.purchase_time,
-                            s1.name AS starting_station_name,s2.name AS ending_station_name,
-                            tr.start_time, tr.end_time,
-                            tk.price AS connection_price,
-                            tk.reserved_seat,
-                            FROM
-                            Purchases p JOIN
-                            Tickets tk ON p.ticket_id = tk.ticket_id JOIN
-                            Trips tr ON tk.trip_id = tr.trip_id JOIN
-                            Trains t ON tr.train_id = t.train_id JOIN
-                            Stations s1 ON tr.starting_station_id = s1.station_id JOIN
-                            Stations s2 ON tr.ending_station_id = s2.station_id
-                            WHERE
-                                p.user_id = %s
-                            ORDER BY
-                                p.purchase_time DESC;
+        cursor.execute("""SELECT *
+                        FROM Purchase
+                        WHERE user_email = %s
+                        ORDER BY purchase_time DESC;
                         """, (user_email,))
         records = cursor.fetchall()
         return records
@@ -300,14 +314,25 @@ class Traits(TraitsInterface):
         Add a new user to the system with given email and details.
         """
         # Implementation here
-        pass
+        cursor = self.rdbms_admin_connection.cursor()
+        cursor.execute("SELECT COUNT(*) FROM Users WHERE email = %s;", (user_email,))
+        if cursor.fetchone()[0] > 0:
+            raise ValueError
+        try:
+            cursor.execute("INSERT INTO Users (email, details) VALUES (%s, %s);", (user_email, user_details))
+        except:
+            raise ValueError
+        self.rdbms_admin_connection.commit()
 
     def delete_user(self, user_email: str) -> None:
         """
         Delete the user from the db if the user exists.
         """
+        cursor = self.rdbms_admin_connection.cursor()
         # Implementation here
-        pass
+        cursor.execute("DELETE FROM Users WHERE email = %s;", (user_email,))
+        # The data should delete itself on the basis of cascade
+        self.rdbms_admin_connection.commit()
 
     def add_train(self, train_key: TraitsKey, train_capacity: int, train_status: TrainStatus) -> None:
         """
@@ -318,13 +343,16 @@ class Traits(TraitsInterface):
             cursor = self.rdbms_admin_connection.cursor()
             insert_train_query = """
             INSERT INTO Trains (train_name, capacity, status)
-            VALUES (%s, %s, %s)
+            VALUES (%s, %s, %s);
             """
-            cursor.execute(insert_train_query, ( train_key.to_string(),  train_capacity,train_status.OPERATIONAL))
-            cursor.commit()
-            return True
-        except:
-            return False
+            
+            cursor.execute(insert_train_query, ( train_key.to_string(),  train_capacity, train_status.value))
+           
+            self.rdbms_admin_connection.commit()
+            
+        except Exception as ex:
+            
+            raise ValueError
         
         
 
@@ -334,19 +362,24 @@ class Traits(TraitsInterface):
         """
         # Implementation here
         cursor = self.rdbms_admin_connection.cursor()
-        if train_capacity is not None:
-            update_capacity_query = """
-            UPDATE Trains SET capacity = %s WHERE train_id = %s
-            """
-            cursor.execute(update_capacity_query, (train_capacity, train_key))
-        
-        if train_status is not None:
-            update_status_query = """
-            UPDATE Trains SET status = %s WHERE train_id = %s
-            """
-            cursor.execute(update_status_query, (train_status, train_key))
-
-        cursor.commit()
+        try:
+            if train_capacity is not None:
+                update_capacity_query = """
+                UPDATE Trains SET capacity = %s WHERE train_name = %s;
+                """
+                cursor.execute(update_capacity_query, (train_capacity, train_key.to_string()))
+            
+            if train_status is not None:
+                update_status_query = """
+                UPDATE Trains SET status = %s WHERE train_name = %s;
+                """
+                print('update', train_status.value, train_key.to_string())
+                cursor.execute(update_status_query, (train_status.value, train_key.to_string()))
+            
+            
+            self.rdbms_admin_connection.commit()
+        except Exception as Ex:
+            raise Ex
         
         
 
@@ -355,14 +388,40 @@ class Traits(TraitsInterface):
         Drop the train from the system. Note that all its schedules, reservations, etc. must be also dropped.
         """
         # Implementation here
-        pass
+        cursor = self.rdbms_admin_connection.cursor()
+        try:
+            # Delete the train and all related records (assuming cascading deletes are set up)
+            delete_train_query = "DELETE FROM Trains WHERE train_name = %s"
+            cursor.execute(delete_train_query, (train_key.to_string(),))
+            self.rdbms_admin_connection.commit()
+        except Exception as e:
+            self.rdbms_admin_connection.rollback()
+            raise e
+        finally:
+            cursor.close()
 
     def add_train_station(self, train_station_key: TraitsKey, train_station_details) -> None:
         """
         Add a train station
         """
         # Implementation here
-        pass
+        cursor = self.rdbms_admin_connection.cursor()
+        try:
+            # Check if station already exists
+            check_station_query = "SELECT COUNT(*) FROM Stations WHERE name = %s"
+            cursor.execute(check_station_query, (train_station_key.to_string(),))
+            if cursor.fetchone()[0] > 0:
+                raise ValueError
+
+            # Insert the station if it doesn't exist
+            insert_station_query = "INSERT INTO Stations (name) VALUES (%s)"
+            cursor.execute(insert_station_query, (train_station_key.to_string(),))
+            self.rdbms_admin_connection.commit()
+        except Exception as e:
+            self.rdbms_admin_connection.rollback()
+            raise e
+        finally:
+            cursor.close()
     
     def connect_train_stations(self, starting_train_station_key: TraitsKey, ending_train_station_key: TraitsKey, travel_time_in_minutes: int)  -> None:
         """

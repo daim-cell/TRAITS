@@ -19,25 +19,25 @@ def test_cannot_find_a_connections_if_stations_do_not_exist(rdbms_connection, rd
                         limit=5)
 
 
-# def test_cannot_find_a_connections_if_stations_are_unreacheable(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+def test_cannot_find_a_connections_if_stations_are_unreacheable(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
     
-#     # Add the stations to the database but do not connect them, so no connection can be found between them
-#     starting_station_key = TraitsKey("1")
-#     train_station_details = None
-#     t.add_train_station(starting_station_key, train_station_details)
+    # Add the stations to the database but do not connect them, so no connection can be found between them
+    starting_station_key = TraitsKey("1")
+    train_station_details = None
+    t.add_train_station(starting_station_key, train_station_details)
 
-#     ending_station_key = TraitsKey("2")
-#     t.add_train_station(ending_station_key, train_station_details)
+    ending_station_key = TraitsKey("2")
+    t.add_train_station(ending_station_key, train_station_details)
 
     
-#         # This call should fail because the stations do not exist in the database
-#     no_connections = t.search_connections(starting_station_key, ending_station_key,
-#                         travel_time_day=None, travel_time_month=None, travel_time_year=None, is_departure_time=True,
-#                         sort_by=SortingCriteria.OVERALL_TRAVEL_TIME, is_ascending=True,
-#                         limit=5)
+        # This call should fail because the stations do not exist in the database
+    no_connections = t.search_connections(starting_station_key, ending_station_key,
+                        travel_time_day=None, travel_time_month=None, travel_time_year=None, is_departure_time=True,
+                        sort_by=SortingCriteria.OVERALL_TRAVEL_TIME, is_ascending=True,
+                        limit=5)
     
-#     assert len(no_connections) == 0, "Wrong number of connections returned"
+    assert len(no_connections) == 0, "Wrong number of connections returned"
 
 
 def test_train_status_in_empty_if_no_train_exist(rdbms_connection, rdbms_admin_connection, neo4j_db):
@@ -90,45 +90,45 @@ def test_get_empty_purchase_history_if_user_not_registered(rdbms_connection, rdb
 # # Admin Features:
 # ########################################################################
 
-# def test_do_not_add_user_with_invalid_email(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-#     invalid_user_email = "this is not a valid email address"
-#     user_details = None
-#     with pytest.raises(ValueError) as exc_info:
-#         t.add_user(invalid_user_email, user_details)
+def test_do_not_add_user_with_invalid_email(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    invalid_user_email = "this is not a valid email address"
+    user_details = None
+    with pytest.raises(ValueError) as exc_info:
+        t.add_user(invalid_user_email, user_details)
 
 
-# def test_do_not_add_duplicated_user(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-#     user_email = "user@email.org"
-#     user_details = None
-#     t.add_user(user_email, user_details)
-#     with pytest.raises(ValueError) as exc_info:
-#         t.add_user(user_email, user_details)
+def test_do_not_add_duplicated_user(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    user_email = "user@email.org"
+    user_details = None
+    t.add_user(user_email, user_details)
+    with pytest.raises(ValueError) as exc_info:
+        t.add_user(user_email, user_details)
 
 
-# def test_delete_user(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-#     user_email = "user@email.org"
-#     user_details = None
-#     t.add_user(user_email, user_details)
-#     utils = TraitsUtility(rdbms_connection, rdbms_admin_connection, neo4j_db)
-#     assert len(utils.get_all_users()) == 1, f"User {user_email} not inserted"
-#     # Delete the user
-#     t.delete_user(user_email)
-#     assert len(utils.get_all_users()) == 0, f"User {user_email} not correctly removed"
+def test_delete_user(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    user_email = "user@email.org"
+    user_details = None
+    t.add_user(user_email, user_details)
+    utils = TraitsUtility(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    assert len(utils.get_all_users()) == 1, f"User {user_email} not inserted"
+    # Delete the user
+    t.delete_user(user_email)
+    assert len(utils.get_all_users()) == 0, f"User {user_email} not correctly removed"
 
 
-# def test_canont_add_duplicated_train(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-#     train_key = TraitsKey(1)
-#     train_capacity = 100
-#     is_operational = True
-#     t.add_train(train_key, train_capacity, is_operational)
-#     with pytest.raises(ValueError) as exc_info:
-#         train_capacity = 10
-#         is_operational = False
-#         t.add_train(train_key, train_capacity, is_operational)
+def test_canont_add_duplicated_train(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    train_key = TraitsKey(1)
+    train_capacity = 100
+    is_operational = TrainStatus.OPERATIONAL
+    t.add_train(train_key, train_capacity, is_operational)
+    with pytest.raises(ValueError) as exc_info:
+        train_capacity = 10
+        is_operational = TrainStatus.BROKEN
+        t.add_train(train_key, train_capacity, is_operational)
 
 
 # def test_update_train_details(rdbms_connection, rdbms_admin_connection, neo4j_db):
@@ -142,26 +142,26 @@ def test_get_empty_purchase_history_if_user_not_registered(rdbms_connection, rdb
     
 #     t.update_train_details(train_key, train_status=TrainStatus.DELAYED)
 #     updated_status = t.get_train_current_status(train_key)
-
+#     print('test',updated_status, current_status )
 #     assert updated_status != current_status, f"wrong train updated status {updated_status}"
 
 
-# def test_delete_a_nonexisting_train_should_not_fail(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+def test_delete_a_nonexisting_train_should_not_fail(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
     
-#     train_key = TraitsKey(1)
-#     t.delete_train(train_key)
-#     no_state = t.get_train_current_status(train_key)
-#     assert no_state is None, "Wrong train status after delete"
+    train_key = TraitsKey(1)
+    t.delete_train(train_key)
+    no_state = t.get_train_current_status(train_key)
+    assert no_state is None, "Wrong train status after delete"
 
 
-# def test_do_not_add_duplicated_train_station(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-#     train_station_key = TraitsKey(0)
-#     train_station_details = None
-#     t.add_train_station(train_station_key, train_station_details)
-#     with pytest.raises(ValueError) as exc_info:
-#         t.add_train_station(train_station_key, train_station_details)
+def test_do_not_add_duplicated_train_station(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    train_station_key = TraitsKey(0)
+    train_station_details = None
+    t.add_train_station(train_station_key, train_station_details)
+    with pytest.raises(ValueError) as exc_info:
+        t.add_train_station(train_station_key, train_station_details)
 
 
 # def test_do_not_connect_train_stations_that_do_not_exist(rdbms_connection, rdbms_admin_connection, neo4j_db):
