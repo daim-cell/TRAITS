@@ -15,18 +15,24 @@ class TraitsUtility(TraitsUtilityInterface):
         # Implementation here
 
         return [
+            """CREATE TABLE IF NOT EXISTS Users (
+                user_id INT PRIMARY KEY AUTO_INCREMENT,
+                username VARCHAR(255) NOT NULL UNIQUE,
+                password VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL UNIQUE
+            );"""
             """ CREATE TABLE IF NOT EXISTS Trains (
-                train_id INT PRIMARY KEY,
+                train_id INT PRIMARY KEY AUTO_INCREMENT,
                 train_name VARCHAR(255) NOT NULL,
                 capacity INT NOT NULL,
                 status VARCHAR(255) NOT NULL
             );""",
             """ CREATE TABLE IF NOT EXISTS Stations (
-                station_id INTEGER PRIMARY KEY,
+                station_id INTEGER PRIMARY KEY AUTO_INCREMENT,
                 name TEXT UNIQUE NOT NULL
             );""",
             """ CREATE TABLE IF NOT EXISTS Trips (
-                trip_id INT PRIMARY KEY,
+                trip_id INT PRIMARY KEY AUTO_INCREMENT,
                 train_id INT NOT NULL,
                 starting_station_id INT NOT NULL,
                 ending_station_id INT NOT NULL,
@@ -36,6 +42,45 @@ class TraitsUtility(TraitsUtilityInterface):
                 FOREIGN KEY (starting_station_id) REFERENCES Stations(station_id),
                 FOREIGN KEY (ending_station_id) REFERENCES Stations(station_id)
             );""",
+            """CREATE TABLE IF NOT EXISTS Tickets (
+                ticket_id INT PRIMARY KEY AUTO_INCREMENT,
+                user_id INT NOT NULL,
+                trip_id INT NOT NULL,
+                booking_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                reserved_seat BOOLEAN NOT NULL DEFAULT FALSE,
+                price INT NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES Users(user_id),
+                FOREIGN KEY (trip_id) REFERENCES Trips(trip_id)
+            );""",
+            """CREATE TABLE IF NOT EXISTS Reservations (
+                reservation_id INT PRIMARY KEY AUTO_INCREMENT,
+                ticket_id INT NOT NULL,
+                FOREIGN KEY (ticket_id) REFERENCES Tickets(ticket_id)
+            );""",
+            """CREATE TABLE IF NOT EXISTS Purchases (
+                purchase_id INT PRIMARY KEY AUTO_INCREMENT,
+                user_id INT NOT NULL,
+                ticket_id INT NOT NULL,
+                purchase_time DATETIME NOT NULL,
+                FOREIGN KEY (user_id) REFERENCES Users(user_id),
+                FOREIGN KEY (ticket_id) REFERENCES Tickets(ticket_id)
+            );""",
+            # Trigger
+            """
+            CREATE TRIGGER calculate_total_price_before_insert
+            BEFORE INSERT ON Tickets
+            FOR EACH ROW
+            BEGIN
+                DECLARE start_time DATETIME;
+                DECLARE end_time DATETIME;
+                DECLARE minutes_diff INT;
+                SELECT t.start_time, t.end_time
+                INTO start_time, end_time
+                FROM Trips t
+                WHERE t.trip_id = NEW.trip_id;
+                SET minutes_diff = TIMESTAMPDIFF(MINUTE, start_time, end_time);
+                SET NEW.price = (minutes_diff / 2) + 2;
+            END;""",
             f"DROP USER IF EXISTS '{ADMIN_USER_NAME}'@'%';",
             f"DROP USER IF EXISTS '{BASE_USER_NAME}'@'%';",
             f"CREATE USER '{ADMIN_USER_NAME}'@'%' IDENTIFIED BY '{ADMIN_USER_PASS}';",
@@ -59,42 +104,6 @@ class TraitsUtility(TraitsUtilityInterface):
         # Implementation here
         pass
 
-
-class Traits(TraitsInterface):
-    def __init__(self, rdbms_connection, rdbms_admin_connection, neo4j_driver) -> None:
-        self.rdbms_connection = rdbms_connection
-        self.rdbms_admin_connection = rdbms_admin_connection
-        self.neo4j_driver = neo4j_driver
-
-    def search_connections(self, starting_station_key: TraitsKey, ending_station_key: TraitsKey,
-                           travel_time_day: int = None, travel_time_month : int = None, travel_time_year : int = None,
-                           is_departure_time=True,
-                           sort_by : SortingCriteria = SortingCriteria.OVERALL_TRAVEL_TIME, is_ascending : bool =True,
-                           limit : int = 5) -> List:
-        """
-        Search Train Connections (between two stations).
-        Sorting criteria can be one of the following:overall travel time, number of train changes, waiting time, and estimated price
-
-        Return the connections from a starting and ending stations, possibly including changes at interchanging stations.
-        Returns an empty list if no connections are possible
-        Raise a ValueError in case of errors and if the starting or ending stations are the same
-        """
-        # Implementation here
-        if starting_station_key.to_string() == ending_station_key.to_string():
-            raise ValueError
-        
-        travel_time = datetime(travel_time_year, travel_time_month, travel_time_day) if travel_time_day or travel_time_month or travel_time_year else datetime.now()
-        travel_time_str = travel_time.strftime('%Y-%m-%dT%H:%M:%S')
-
-         # Build the Neo4j query
-        routes = self._execute_neo4j_query(starting_station_key.to_string(), ending_station_key.to_string(), travel_time_str, is_departure_time, sort_by, is_ascending, limit)
-        if len(routes) == 0:
-            raise ValueError
-        # Fetch additional details from MariaDB
-        detailed_routes = self._fetch_details_from_mariadb(routes)
-
-        return detailed_routes
-    
     def _execute_neo4j_query(self, start_station, end_station, travel_time, is_departure_time, sort_by, is_ascending, limit):
         sort_criteria = {
             SortingCriteria.OVERALL_TRAVEL_TIME: "overallTravelTime",
@@ -127,9 +136,6 @@ class Traits(TraitsInterface):
             routes = [record.data() for record in result]
         return routes
 
-
-        
-
     def _fetch_details_from_mariadb(self, routes):
         detailed_routes = []
         for route in routes:
@@ -139,6 +145,76 @@ class Traits(TraitsInterface):
                 self.rdbms_admin_connection.execute("SELECT * FROM Trips WHERE trip_id = ?", (trip_id,))
                 details.extend(self.rdbms_connection.fetchall())
             detailed_routes.append(details)
+        return detailed_routes
+    
+    def check_available_seats(self, trip_id: int) -> int:
+        cursor = self.rdbms_connection.cursor()
+        
+        # Fetch the train_id for the given trip_id
+        cursor.execute("SELECT train_id FROM Trips WHERE trip_id = %s", (trip_id,))
+        train_id = cursor.fetchone()
+        if not train_id:
+            raise ValueError("Trip does not exist")
+        
+        train_id = train_id[0]
+
+        # Fetch the train capacity
+        cursor.execute("SELECT capacity FROM Trains WHERE train_id = %s", (train_id,))
+        train_capacity = cursor.fetchone()
+        if not train_capacity:
+            raise ValueError("Train does not exist")
+
+        train_capacity = train_capacity[0]
+
+        # Fetch the number of reserved seats for the given trip_id
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM Reservations R
+            JOIN Tickets T ON R.ticket_id = T.ticket_id
+            WHERE T.trip_id = %s
+            """,
+            (trip_id,)
+        )
+        reserved_seats = cursor.fetchone()[0]
+
+        available_seats = train_capacity - reserved_seats
+        return available_seats
+
+    
+class Traits(TraitsInterface):
+    def __init__(self, rdbms_connection, rdbms_admin_connection, neo4j_driver) -> None:
+        self.rdbms_connection = rdbms_connection
+        self.rdbms_admin_connection = rdbms_admin_connection
+        self.neo4j_driver = neo4j_driver
+        self.utility = TraitsUtility(rdbms_connection, rdbms_admin_connection, neo4j_driver)
+
+    def search_connections(self, starting_station_key: TraitsKey, ending_station_key: TraitsKey,
+                           travel_time_day: int = None, travel_time_month : int = None, travel_time_year : int = None,
+                           is_departure_time=True,
+                           sort_by : SortingCriteria = SortingCriteria.OVERALL_TRAVEL_TIME, is_ascending : bool =True,
+                           limit : int = 5) -> List:
+        """
+        Search Train Connections (between two stations).
+        Sorting criteria can be one of the following:overall travel time, number of train changes, waiting time, and estimated price
+
+        Return the connections from a starting and ending stations, possibly including changes at interchanging stations.
+        Returns an empty list if no connections are possible
+        Raise a ValueError in case of errors and if the starting or ending stations are the same
+        """
+        # Implementation here
+        if starting_station_key.to_string() == ending_station_key.to_string():
+            raise ValueError
+        
+        travel_time = datetime(travel_time_year, travel_time_month, travel_time_day) if travel_time_day or travel_time_month or travel_time_year else datetime.now()
+        travel_time_str = travel_time.strftime('%Y-%m-%dT%H:%M:%S')
+
+         # Build the Neo4j query
+        routes = self.utility._execute_neo4j_query(starting_station_key.to_string(), ending_station_key.to_string(), travel_time_str, is_departure_time, sort_by, is_ascending, limit)
+        if len(routes) == 0:
+            raise ValueError
+        # Fetch additional details from MariaDB
+        detailed_routes = self.utility._fetch_details_from_mariadb(routes)
+
         return detailed_routes
     
     def get_train_current_status(self, train_key: TraitsKey) -> Optional[TrainStatus]:
@@ -158,14 +234,66 @@ class Traits(TraitsInterface):
         Given a train connection instance (e.g., on a given date/time), registered users can book tickets and optionally reserve seats.
         """
         # Implementation here
-        pass
+        cursor = self.rdbms_connection.cursor()
+        # Assuming the connection parameter is a trip object
+        # Fetch trip details and calculate the total price
+        cursor.execute("SELECT * FROM Users WHERE email = %s", (user_email,))
+        user = cursor.fetchone()
+        if not user:
+            raise ValueError("User does not exist")
+
+
+        # Insert into Tickets table
+        cursor.execute(
+            "INSERT INTO Tickets (user_id, trip_id, reserved_seat) VALUES (%s, %s, %s)",
+            (user.user_id, connection.trip_id, also_reserve_seats)
+        )
+        ticket_id = cursor.lastrowid
+
+        if also_reserve_seats:
+            # Check available seats
+            available_seats = self.utility.check_available_seats(connection.trip_id)
+            if available_seats > 0:
+                # Insert into Reservations table
+                cursor.execute(
+                    "INSERT INTO Reservations (ticket_id) VALUES (%s)", (ticket_id,)
+                )
+            else:
+                raise ValueError('No Seats to reserve')
+
+        cursor.commit()
 
     def get_purchase_history(self, user_email: str) -> List:
         """
         Access Purchase History
         """
+        cursor = self.rdbms_connection.cursor()
         # Implementation here
-        pass
+        cursor.execute("SELECT * FROM Users WHERE email = %s", (user_email,))
+        user = cursor.fetchone()
+        if not user:
+            return []
+        cursor = self.rdbms_connection.cursor()
+        cursor.execute("""SELECT
+                            p.purchase_id, p.purchase_time,
+                            s1.name AS starting_station_name,s2.name AS ending_station_name,
+                            tr.start_time, tr.end_time,
+                            tk.price AS connection_price,
+                            tk.reserved_seat,
+                            FROM
+                            Purchases p JOIN
+                            Tickets tk ON p.ticket_id = tk.ticket_id JOIN
+                            Trips tr ON tk.trip_id = tr.trip_id JOIN
+                            Trains t ON tr.train_id = t.train_id JOIN
+                            Stations s1 ON tr.starting_station_id = s1.station_id JOIN
+                            Stations s2 ON tr.ending_station_id = s2.station_id
+                            WHERE
+                                p.user_id = %s
+                            ORDER BY
+                                p.purchase_time DESC;
+                        """, (user_email,))
+        records = cursor.fetchall()
+        return records
 
     def add_user(self, user_email: str, user_details) -> None:
         """

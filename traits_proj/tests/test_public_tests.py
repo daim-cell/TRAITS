@@ -55,35 +55,35 @@ def test_train_status_in_empty_if_no_train_exist(rdbms_connection, rdbms_admin_c
 # Advanced Features
 ########################################################################
 
-# def test_buy_ticket(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     """
-#     Given a train connection instance (e.g., on a given date/time), registered users can book tickets and optionally reserve seats. When the user decides to reserve seats, the system will try to reserve all the available seats automatically.
-#     We make the following assumptions:
-#         - There is always a place on the trains, so tickets can be always bought
-#         - The train seats are not numbered, so the system must handle only the number of passengers booked on a train and not each single seat.
-#         - The system grants only those seats that are effectively available at the moment of request; thus, overbooking on reserved seats is not possible.
-#         - Seats reservation cannot be done after booking a ticket.
-#         - A user can only reserve one seat in each train at the given time.
-#     If the user does not exist, the method must raise a ValueError
-#     """
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+def test_buy_ticket(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    """
+    Given a train connection instance (e.g., on a given date/time), registered users can book tickets and optionally reserve seats. When the user decides to reserve seats, the system will try to reserve all the available seats automatically.
+    We make the following assumptions:
+        - There is always a place on the trains, so tickets can be always bought
+        - The train seats are not numbered, so the system must handle only the number of passengers booked on a train and not each single seat.
+        - The system grants only those seats that are effectively available at the moment of request; thus, overbooking on reserved seats is not possible.
+        - Seats reservation cannot be done after booking a ticket.
+        - A user can only reserve one seat in each train at the given time.
+    If the user does not exist, the method must raise a ValueError
+    """
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
     
-#     # User does not exist
-#     user_email = "user@email.org"
-#     # No connection is specified
-#     connection = None 
-#     also_reserve_seats = True
+    # User does not exist
+    user_email = "user@email.org"
+    # No connection is specified
+    connection = None 
+    also_reserve_seats = True
 
-#     with pytest.raises(ValueError) as exc_info:
-#        t.buy_ticket(user_email, connection, also_reserve_seats)
+    with pytest.raises(ValueError) as exc_info:
+       t.buy_ticket(user_email, connection, also_reserve_seats)
 
 
-# def test_get_empty_purchase_history_if_user_not_registered(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#      t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-#      user_email = "user@email.org"
-#      empty_history = t.get_purchase_history(user_email)
+def test_get_empty_purchase_history_if_user_not_registered(rdbms_connection, rdbms_admin_connection, neo4j_db):
+     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+     user_email = "user@email.org"
+     empty_history = t.get_purchase_history(user_email)
 
-#      assert len(empty_history) == 0, "Wrong history returned for non registered user"
+     assert len(empty_history) == 0, "Wrong history returned for non registered user"
 
 
 # ########################################################################
