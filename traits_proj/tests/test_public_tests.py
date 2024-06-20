@@ -164,21 +164,21 @@ def test_do_not_add_duplicated_train_station(rdbms_connection, rdbms_admin_conne
         t.add_train_station(train_station_key, train_station_details)
 
 
-# def test_do_not_connect_train_stations_that_do_not_exist(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-#     starting_train_station_key = TraitsKey(0)
-#     ending_train_station_key = TraitsKey("2") 
-#     travel_time = 5 # minutes
-#     with pytest.raises(ValueError) as exc_info:
-#         t.connect_train_stations(starting_train_station_key, ending_train_station_key, travel_time)
+def test_do_not_connect_train_stations_that_do_not_exist(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    starting_train_station_key = TraitsKey(0)
+    ending_train_station_key = TraitsKey("2") 
+    travel_time = 5 # minutes
+    with pytest.raises(ValueError) as exc_info:
+        t.connect_train_stations(starting_train_station_key, ending_train_station_key, travel_time)
 
-# def test_do_not_connect_train_stations_with_wrong_travel_time(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-#     starting_train_station_key = TraitsKey(0)
-#     ending_train_station_key = TraitsKey(1)
-#     travel_time = 0 # Impossible time!
-#     with pytest.raises(ValueError) as exc_info:
-#         t.connect_train_stations(starting_train_station_key, ending_train_station_key, travel_time)
+def test_do_not_connect_train_stations_with_wrong_travel_time(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    starting_train_station_key = TraitsKey(0)
+    ending_train_station_key = TraitsKey(1)
+    travel_time = 0 # Impossible time!
+    with pytest.raises(ValueError) as exc_info:
+        t.connect_train_stations(starting_train_station_key, ending_train_station_key, travel_time)
 
 
 # def test_simple_add_schedule(rdbms_connection, rdbms_admin_connection, neo4j_db):

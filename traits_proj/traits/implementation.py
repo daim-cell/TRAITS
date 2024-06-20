@@ -189,6 +189,9 @@ class TraitsUtility(TraitsUtilityInterface):
         Check if the starting and ending station keys exist in the Stations table.
         Raise a ValueError if any of the keys do not exist.
         """
+
+        if starting_station_key ==  ending_station_key:
+            raise ValueError
         cursor = self.rdbms_connection.cursor()
         
         # Query to check if the starting station key exists
@@ -231,7 +234,7 @@ class Traits(TraitsInterface):
         # Implementation here
         if starting_station_key.to_string() == ending_station_key.to_string():
             raise ValueError
-        self.utility.search_station_keys(starting_station_key.to_string(), ending_station_key.to_string())
+        self.utility.search_station_keys(starting_station_key.to_int(), ending_station_key.to_int())
         travel_time = datetime(travel_time_year, travel_time_month, travel_time_day) if travel_time_day or travel_time_month or travel_time_year else datetime.now()
         travel_time_str = travel_time.strftime('%Y-%m-%dT%H:%M:%S')
 
@@ -354,8 +357,6 @@ class Traits(TraitsInterface):
             
             raise ValueError
         
-        
-
     def update_train_details(self, train_key: TraitsKey, train_capacity: Optional[int] = None, train_status: Optional[TrainStatus] = None) -> None:
         """
         Update the details of existing train if specified (i.e., not None), otherwise do nothing.
@@ -381,8 +382,6 @@ class Traits(TraitsInterface):
         except Exception as Ex:
             raise Ex
         
-        
-
     def delete_train(self, train_key: TraitsKey) -> None:
         """
         Drop the train from the system. Note that all its schedules, reservations, etc. must be also dropped.
@@ -417,8 +416,17 @@ class Traits(TraitsInterface):
             insert_station_query = "INSERT INTO Stations (name) VALUES (%s)"
             cursor.execute(insert_station_query, (train_station_key.to_string(),))
             self.rdbms_admin_connection.commit()
+
+            # Insert the station as a node in Neo4j
+            with self.neo4j_driver.session() as session:
+                create_node_query = """
+                CREATE (s:Station {name: $name, details: $details})
+                """
+                session.run(create_node_query, name=train_station_key.to_string(), details=train_station_details)
+        
         except Exception as e:
             self.rdbms_admin_connection.rollback()
+            print(e)
             raise e
         finally:
             cursor.close()
@@ -428,15 +436,82 @@ class Traits(TraitsInterface):
         Connect to train station so trains can travel on them
         """
         # Implementation here
-        pass
+        
+        try:
+            self.utility.search_station_keys(starting_train_station_key.to_int(), ending_train_station_key.to_int())
+
+            if travel_time_in_minutes < 1 or travel_time_in_minutes > 60:
+                raise ValueError 
+            # Create a relationship between the stations
+            with self.neo4j_driver.session() as session:
+                create_relationship_query = """
+                MATCH (start:Station {name: $start_name}), (end:Station {name: $end_name})
+                CREATE (start)-[:CONNECTS {travel_time: $time}}]->(end)
+                CREATE (end)-[:CONNECTS {travel_time: $time}}]->(start)
+                """
+                session.run(create_relationship_query, start_name=starting_train_station_key.to_string(), end_name=ending_train_station_key.to_string(), time = travel_time_in_minutes)
+                
+        except Exception as e:
+            raise e
 
     def add_schedule(self, train_key: TraitsKey,
-                     starting_hours_24_h: int, starting_minutes: int,
-                     stops: List[Tuple[TraitsKey, int]], # [station_key, waiting_time]
-                     valid_from_day: int, valid_from_month: int, valid_from_year: int,
-                     valid_until_day: int, valid_until_month: int, valid_until_year: int) -> None:
+                 starting_hours_24_h: int, starting_minutes: int,
+                 stops: List[Tuple[TraitsKey, int]], # [station_key, waiting_time]
+                 valid_from_day: int, valid_from_month: int, valid_from_year: int,
+                 valid_until_day: int, valid_until_month: int, valid_until_year: int) -> None:
         """
-        Create a schedule for a give train.
+        Create a schedule for a given train.
         """
-        # Implementation here
-        pass
+        cursor = self.rdbms_admin_connection.cursor()
+        try:
+            # Check if train exists
+            check_train_query = "SELECT train_id FROM Trains WHERE train_name = %s"
+            cursor.execute(check_train_query, (train_key.to_string(),))
+            train_id = cursor.fetchone()
+            if not train_id:
+                raise ValueError
+
+            train_id = train_id[0]
+
+            # Ensure stops are valid and fetch their IDs
+            stop_ids = []
+            for stop_key, waiting_time in stops:
+                cursor.execute("SELECT station_id FROM Stations WHERE name = %s", (stop_key.to_string(),))
+                station_id = cursor.fetchone()
+                if not station_id:
+                    raise ValueError
+                stop_ids.append((station_id[0], waiting_time))
+
+            # Validate time and date ranges
+            if starting_hours_24_h < 0 or starting_hours_24_h > 23 or starting_minutes < 0 or starting_minutes > 59:
+                raise ValueError
+
+            valid_from = f"{valid_from_year}-{valid_from_month:02d}-{valid_from_day:02d}"
+            valid_until = f"{valid_until_year}-{valid_until_month:02d}-{valid_until_day:02d}"
+
+            # Insert the schedule into the database
+            for i in range(len(stop_ids)):
+                station_id, waiting_time = stop_ids[i]
+
+                if i == 0:
+                    # First stop, use the provided starting time
+                    start_time = f"{starting_hours_24_h:02d}:{starting_minutes:02d}:00"
+                    end_time = f"{(starting_hours_24_h + 1) % 24:02d}:{starting_minutes:02d}:00" # Placeholder
+                else:
+                    # Calculate the time based on the previous stop's end time
+                    prev_station_id, prev_waiting_time = stop_ids[i - 1]
+                    end_time = f"{(starting_hours_24_h + 1 + i) % 24:02d}:{starting_minutes:02d}:00" # Placeholder
+                    start_time = end_time
+
+                insert_schedule_query = """
+                INSERT INTO Schedules (train_id, station_id, start_time, end_time, valid_from, valid_until)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """
+                cursor.execute(insert_schedule_query, (train_id, station_id, start_time, end_time, valid_from, valid_until))
+
+            self.rdbms_admin_connection.commit()
+        except Exception as e:
+            self.rdbms_admin_connection.rollback()
+            raise e
+        finally:
+            cursor.close()
