@@ -1,7 +1,7 @@
 from typing import List, Tuple, Optional, Dict
 from traits.interface import TraitsUtilityInterface, TraitsInterface, TraitsKey, TrainStatus, SortingCriteria
 from traits.interface import BASE_USER_NAME, BASE_USER_PASS, ADMIN_USER_NAME, ADMIN_USER_PASS
-from datetime import datetime
+from datetime import datetime, date, time, timedelta
 class TraitsUtility(TraitsUtilityInterface):
     def __init__(self, rdbms_connection, rdbms_admin_connection, neo4j_driver) -> None:
         self.rdbms_connection = rdbms_connection
@@ -35,8 +35,9 @@ class TraitsUtility(TraitsUtilityInterface):
                 train_id INT NOT NULL,
                 starting_station_id INT NOT NULL,
                 ending_station_id INT NOT NULL,
-                start_time DATETIME NOT NULL,
-                end_time DATETIME NOT NULL,
+                date DATE NOT NULL,
+                start_time TIME NOT NULL,
+                end_time TIME NOT NULL,
                 FOREIGN KEY (train_id) REFERENCES Trains(train_id) ON DELETE CASCADE,
                 FOREIGN KEY (starting_station_id) REFERENCES Stations(station_id),
                 FOREIGN KEY (ending_station_id) REFERENCES Stations(station_id)
@@ -55,6 +56,25 @@ class TraitsUtility(TraitsUtilityInterface):
                 reservation_id INT PRIMARY KEY AUTO_INCREMENT,
                 ticket_id INT NOT NULL,
                 FOREIGN KEY (ticket_id) REFERENCES Tickets(ticket_id) ON DELETE CASCADE
+            );""",
+            """CREATE TABLE IF NOT EXISTS Connections (
+                connection_id INT PRIMARY KEY AUTO_INCREMENT,
+                starting_station VARCHAR(255) NOT NULL,
+                ending_station VARCHAR(255) NOT NULL,
+                travel_time INT NOT NULL
+            );""",
+            """CREATE TABLE IF NOT EXISTS Schedules (
+                schedule_id INT PRIMARY KEY AUTO_INCREMENT,
+                train_id INT NOT NULL,
+                starting_station_id INT NOT NULL,
+                ending_station_id INT NOT NULL,
+                start_time TIME NOT NULL,
+                end_time TIME NOT NULL,
+                valid_from DATE NOT NULL,
+                valid_until DATE NOT NULL,
+                FOREIGN KEY (train_id) REFERENCES Trains(train_id) ON DELETE CASCADE,
+                FOREIGN KEY (starting_station_id) REFERENCES Stations(station_id) ON DELETE CASCADE,
+                FOREIGN KEY (ending_station_id) REFERENCES Stations(station_id) ON DELETE CASCADE
             );""",
             # Views
             """ CREATE VIEW Purchase AS
@@ -111,7 +131,10 @@ class TraitsUtility(TraitsUtilityInterface):
         Return all the schedules stored in the database
         """
         # Implementation here
-        pass
+        cursor = self.rdbms_admin_connection.cursor()
+        cursor.execute("SELECT * FROM Schedules")
+        schedules = cursor.fetchall()
+        return schedules
 
     def _execute_neo4j_query(self, start_station, end_station, travel_time, is_departure_time, sort_by, is_ascending, limit):
         sort_criteria = ["overallTravelTime", "numberOfTrains","totalWaitingTime", "Price"]
@@ -195,11 +218,11 @@ class TraitsUtility(TraitsUtilityInterface):
         cursor = self.rdbms_connection.cursor()
         
         # Query to check if the starting station key exists
-        cursor.execute("SELECT COUNT(*) FROM Stations WHERE station_id = %s", (starting_station_key,))
+        cursor.execute("SELECT COUNT(*) FROM Stations WHERE name = %s", (starting_station_key,))
         start_station_count = cursor.fetchone()[0]
         
         # Query to check if the ending station key exists
-        cursor.execute("SELECT COUNT(*) FROM Stations WHERE station_id = %s", (ending_station_key,))
+        cursor.execute("SELECT COUNT(*) FROM Stations WHERE name = %s", (ending_station_key,))
         end_station_count = cursor.fetchone()[0]
 
         # Close the cursor
@@ -208,6 +231,46 @@ class TraitsUtility(TraitsUtilityInterface):
         # Raise ValueError if any of the keys do not exist
         if start_station_count == 0 or end_station_count == 0:
             raise ValueError
+        
+    def get_dates(self, valid_from_day: int, valid_from_month: int, valid_from_year: int,
+                 valid_until_day: int, valid_until_month: int, valid_until_year: int) -> List[date]:
+        cte_query = f"""
+        WITH RECURSIVE DateRange AS (
+            SELECT
+                DATE(CONCAT({valid_from_year}, '-', {valid_from_month}, '-', {valid_from_day})) AS date
+            UNION ALL
+            SELECT
+                DATE_ADD(date, INTERVAL 1 DAY)
+            FROM
+                DateRange
+            WHERE
+                date < DATE(CONCAT({valid_until_year}, '-', {valid_until_month}, '-', {valid_until_day}))
+        )
+        SELECT date FROM DateRange;
+        """
+
+        # Execute the CTE query
+        cursor = self.rdbms_admin_connection.cursor()
+        cursor.execute(cte_query)
+        dates = cursor.fetchall()
+        return dates
+    
+    def add_travel_time(self, starting_hours_24_h: int, starting_minutes: int, travel_minutes: int) -> str:
+    # Create start time object
+        start_time = time(hour=starting_hours_24_h, minute=starting_minutes)
+
+        # Create travel time delta
+        travel_time = timedelta(minutes=travel_minutes)
+
+        # Combine start date and time, then add the travel time
+        start_datetime = datetime.combine(datetime.today(), start_time)  # Important step
+        end_datetime = start_datetime + travel_time
+
+        # Format the end time as a string
+        end_time = end_datetime.time().strftime("%H:%M:%S")
+        end_hours = end_datetime.time().hour
+        end_minutes = end_datetime.time().minute
+        return end_time, end_hours, end_minutes
         
 
     
@@ -349,12 +412,12 @@ class Traits(TraitsInterface):
             VALUES (%s, %s, %s);
             """
             
-            cursor.execute(insert_train_query, ( train_key.to_string(),  train_capacity, train_status.value))
+            cursor.execute(insert_train_query, (train_key.to_string(),  train_capacity, train_status.value))
            
             self.rdbms_admin_connection.commit()
             
         except Exception as ex:
-            
+            print(ex)
             raise ValueError
         
     def update_train_details(self, train_key: TraitsKey, train_capacity: Optional[int] = None, train_status: Optional[TrainStatus] = None) -> None:
@@ -443,14 +506,21 @@ class Traits(TraitsInterface):
             if travel_time_in_minutes < 1 or travel_time_in_minutes > 60:
                 raise ValueError 
             # Create a relationship between the stations
-            with self.neo4j_driver.session() as session:
-                create_relationship_query = """
-                MATCH (start:Station {name: $start_name}), (end:Station {name: $end_name})
-                CREATE (start)-[:CONNECTS {travel_time: $time}}]->(end)
-                CREATE (end)-[:CONNECTS {travel_time: $time}}]->(start)
-                """
-                session.run(create_relationship_query, start_name=starting_train_station_key.to_string(), end_name=ending_train_station_key.to_string(), time = travel_time_in_minutes)
-                
+            cursor = self.rdbms_admin_connection.cursor()
+     
+            # Check if station already exists
+            check_station_query = "SELECT COUNT(*) FROM Connections WHERE starting_station = %s AND ending_station = %s"
+            cursor.execute(check_station_query, (starting_train_station_key.to_string(), ending_train_station_key.to_string()))
+            if cursor.fetchone()[0] > 0:
+                raise ValueError
+
+            # Insert the station if it doesn't exist
+            insert_station_query = "INSERT INTO Connections (starting_station, ending_station, travel_time) VALUES (%s, %s, %s)"
+            cursor.execute(insert_station_query, (starting_train_station_key.to_string(), ending_train_station_key.to_string(), travel_time_in_minutes))
+            # For the other way around
+            cursor.execute(insert_station_query, (ending_train_station_key.to_string(), starting_train_station_key.to_string(), travel_time_in_minutes))
+            
+            self.rdbms_admin_connection.commit()
         except Exception as e:
             raise e
 
@@ -472,43 +542,59 @@ class Traits(TraitsInterface):
                 raise ValueError
 
             train_id = train_id[0]
-
             # Ensure stops are valid and fetch their IDs
-            stop_ids = []
-            for stop_key, waiting_time in stops:
+            stop_info = []
+            start_time = f"{starting_hours_24_h}:{starting_minutes}:00"
+            hrs = starting_hours_24_h
+            mins = starting_minutes
+            for i, (stop_key, waiting_time) in enumerate(stops):
                 cursor.execute("SELECT station_id FROM Stations WHERE name = %s", (stop_key.to_string(),))
                 station_id = cursor.fetchone()
                 if not station_id:
                     raise ValueError
-                stop_ids.append((station_id[0], waiting_time))
-
+                if i != 0:
+                    cursor.execute("SELECT travel_time FROM Connections WHERE starting_station = %s AND ending_station = %s", ( prev_station_name.to_string(),stop_key.to_string(),))
+                    travel_time = cursor.fetchone()
+                    if not travel_time:
+                        raise ValueError
+                    end_time, hrs, mins = self.utility.add_travel_time(hrs , mins, travel_time[0])
+                    stop_info.append([prev_station_id, station_id[0], start_time, end_time, prev_station_name.to_string(),stop_key.to_string(), travel_time[0]])
+                    start_time, hrs, mins = self.utility.add_travel_time(hrs , mins, waiting_time)
+                # Last stop to have atleast 10 minute waiting time
+                if i == len(stops)-1 and waiting_time < 10:
+                    raise ValueError
+                prev_station_id = station_id[0]
+                prev_station_name = stop_key
+                
             # Validate time and date ranges
             if starting_hours_24_h < 0 or starting_hours_24_h > 23 or starting_minutes < 0 or starting_minutes > 59:
                 raise ValueError
-
+            
             valid_from = f"{valid_from_year}-{valid_from_month:02d}-{valid_from_day:02d}"
             valid_until = f"{valid_until_year}-{valid_until_month:02d}-{valid_until_day:02d}"
+            insert_schedule_query = """
+            INSERT INTO Schedules (train_id, starting_station_id, ending_station_id, start_time, end_time, valid_from, valid_until)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+            cursor.execute(insert_schedule_query, (train_id, stop_info[0][0], stop_info[-1][1], f"{starting_hours_24_h}:{starting_minutes}:00", stop_info[-1][3], valid_from, valid_until))
+
+
+            dates = self.utility.get_dates(valid_from_day, valid_from_month, valid_from_year,
+                 valid_until_day, valid_until_month, valid_until_year)
+            insert_trip_query = "INSERT INTO Trips (train_id, starting_station_id, ending_station_id, date, start_time, end_time) VALUES (%s,%s,%s,%s,%s,%s)"
+            for ind_date in dates:
+                for stop in stop_info:
+                    cursor.execute(insert_trip_query,(train_id, stop[0], stop[1], ind_date[0], stop[2], stop[3]) )
+                    with self.neo4j_driver.session() as session:
+                        query = """
+                        MATCH (a:Station {name: $start_station_name}), (b:Station {name: $end_station_name})
+                        CREATE (a)-[:CONNECTS {departure_time: $departure_time, travel_time: $travel_time, arrival_time: $arrival_time, train_name: $train_name}]->(b)
+                        """
+                        session.run(query, start_station_name=stop[4], end_station_name=stop[5], departure_time=stop[2], travel_time=stop[6], arrival_time=stop[3], train_name=train_key.to_string())
+
+
 
             # Insert the schedule into the database
-            for i in range(len(stop_ids)):
-                station_id, waiting_time = stop_ids[i]
-
-                if i == 0:
-                    # First stop, use the provided starting time
-                    start_time = f"{starting_hours_24_h:02d}:{starting_minutes:02d}:00"
-                    end_time = f"{(starting_hours_24_h + 1) % 24:02d}:{starting_minutes:02d}:00" # Placeholder
-                else:
-                    # Calculate the time based on the previous stop's end time
-                    prev_station_id, prev_waiting_time = stop_ids[i - 1]
-                    end_time = f"{(starting_hours_24_h + 1 + i) % 24:02d}:{starting_minutes:02d}:00" # Placeholder
-                    start_time = end_time
-
-                insert_schedule_query = """
-                INSERT INTO Schedules (train_id, station_id, start_time, end_time, valid_from, valid_until)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """
-                cursor.execute(insert_schedule_query, (train_id, station_id, start_time, end_time, valid_from, valid_until))
-
             self.rdbms_admin_connection.commit()
         except Exception as e:
             self.rdbms_admin_connection.rollback()

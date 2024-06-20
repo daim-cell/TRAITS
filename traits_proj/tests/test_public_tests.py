@@ -131,19 +131,19 @@ def test_canont_add_duplicated_train(rdbms_connection, rdbms_admin_connection, n
         t.add_train(train_key, train_capacity, is_operational)
 
 
-# def test_update_train_details(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+def test_update_train_details(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
     
-#     train_key = TraitsKey(1)
-#     train_capacity = 100
+    train_key = TraitsKey(1)
+    train_capacity = 100
     
-#     t.add_train(train_key, train_capacity, train_status=TrainStatus.OPERATIONAL)
-#     current_status = t.get_train_current_status(train_key)
+    t.add_train(train_key, train_capacity, train_status=TrainStatus.OPERATIONAL)
+    current_status = t.get_train_current_status(train_key)
     
-#     t.update_train_details(train_key, train_status=TrainStatus.DELAYED)
-#     updated_status = t.get_train_current_status(train_key)
-#     print('test',updated_status, current_status )
-#     assert updated_status != current_status, f"wrong train updated status {updated_status}"
+    t.update_train_details(train_key, train_status=TrainStatus.DELAYED)
+    updated_status = t.get_train_current_status(train_key)
+    print('test',updated_status, current_status )
+    assert updated_status != current_status, f"wrong train updated status {updated_status}"
 
 
 def test_delete_a_nonexisting_train_should_not_fail(rdbms_connection, rdbms_admin_connection, neo4j_db):
@@ -181,86 +181,86 @@ def test_do_not_connect_train_stations_with_wrong_travel_time(rdbms_connection, 
         t.connect_train_stations(starting_train_station_key, ending_train_station_key, travel_time)
 
 
-# def test_simple_add_schedule(rdbms_connection, rdbms_admin_connection, neo4j_db):
-#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+def test_simple_add_schedule(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
 
-#     # Add two stations
-#     starting_train_station_key = TraitsKey(1)
-#     train_station_details = None
-#     t.add_train_station(starting_train_station_key, train_station_details)
+    # Add two stations
+    starting_train_station_key = TraitsKey(1)
+    train_station_details = None
+    t.add_train_station(starting_train_station_key, train_station_details)
 
-#     ending_train_station_key = TraitsKey("2") # Not a typo !
-#     t.add_train_station(ending_train_station_key, train_station_details)
+    ending_train_station_key = TraitsKey("2") # Not a typo !
+    t.add_train_station(ending_train_station_key, train_station_details)
 
-#     # Connect the two stations
-#     travel_time = 20
-#     t.connect_train_stations(starting_train_station_key, ending_train_station_key, travel_time)
+    # Connect the two stations
+    travel_time = 20
+    t.connect_train_stations(starting_train_station_key, ending_train_station_key, travel_time)
     
-#     # Add a train
-#     train_key = None
-#     t.add_train(train_key, train_capacity=100, train_status=TrainStatus.OPERATIONAL)
-#     # Stops
-#     stops = []
-#     # The train waits 5 minutes at first station
-#     stops.append( (starting_train_station_key, 5) )
-#     # The train travels 20 minutes to second station and then wait an additional 10 minutes
-#     stops.append( (ending_train_station_key, 10) )
+    # Add a train
+    train_key = TraitsKey('t1')
+    t.add_train(train_key, train_capacity=100, train_status=TrainStatus.OPERATIONAL)
+    # Stops
+    stops = []
+    # The train waits 5 minutes at first station
+    stops.append( (starting_train_station_key, 5) )
+    # The train travels 20 minutes to second station and then wait an additional 10 minutes
+    stops.append( (ending_train_station_key, 10) )
 
-#     # The schedule starts everyday at 08:00 AM
-#     starting_hours_24_h, starting_minutes = 8, 0
+    # The schedule starts everyday at 08:00 AM
+    starting_hours_24_h, starting_minutes = 8, 0
 
-#     # The schedule is valid from 1 jan to 31 dec 2024
-#     valid_from_day, valid_from_month, valid_from_year = 1, 1, 2024
-#     valid_until_day, valid_until_month, valid_until_year = 31, 12, 2024
+    # The schedule is valid from 1 jan to 31 dec 2024
+    valid_from_day, valid_from_month, valid_from_year = 1, 1, 2024
+    valid_until_day, valid_until_month, valid_until_year = 31, 12, 2024
     
-#     #
-#     t.add_schedule(
-#                 train_key,
-#                 starting_hours_24_h, starting_minutes,
-#                 stops,
-#                 valid_from_day, valid_from_month, valid_from_year,
-#                 valid_until_day, valid_until_month, valid_until_year)
+    #
+    t.add_schedule(
+                train_key,
+                starting_hours_24_h, starting_minutes,
+                stops,
+                valid_from_day, valid_from_month, valid_from_year,
+                valid_until_day, valid_until_month, valid_until_year)
     
-#     utils = TraitsUtility(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    utils = TraitsUtility(rdbms_connection, rdbms_admin_connection, neo4j_db)
 
-#     assert len(utils.get_all_schedules()) == 1, "The schedule was not correctly stored"
+    assert len(utils.get_all_schedules()) == 1, "The schedule was not correctly stored"
 
 
-# def test_do_not_add_schedule_if_stops_are_not_connected(rdbms_connection, rdbms_admin_connection, neo4j_db):
-    # t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-    # # Add two stations
-    # starting_train_station_key = TraitsKey(1)
-    # train_station_details = None
-    # t.add_train_station(starting_train_station_key, train_station_details)
+def test_do_not_add_schedule_if_stops_are_not_connected(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    # Add two stations
+    starting_train_station_key = TraitsKey(1)
+    train_station_details = None
+    t.add_train_station(starting_train_station_key, train_station_details)
 
-    # ending_train_station_key = TraitsKey("2") # Not a typo !
-    # t.add_train_station(ending_train_station_key, train_station_details)
+    ending_train_station_key = TraitsKey("2") # Not a typo !
+    t.add_train_station(ending_train_station_key, train_station_details)
 
-    # # DO NOT CONNECT THE TWO STATIONS. So they cannot be consecutive stops in the schedule
+    # DO NOT CONNECT THE TWO STATIONS. So they cannot be consecutive stops in the schedule
     
-    # # Add a train
-    # train_key = None
-    # t.add_train(train_key, train_capacity=100, train_status=TrainStatus.OPERATIONAL)
+    # Add a train
+    train_key = TraitsKey('t1')
+    t.add_train(train_key, train_capacity=100, train_status=TrainStatus.OPERATIONAL)
 
-    # # Stops
-    # stops = []
-    # # The train waits 5 minutes at first station
-    # stops.append( (starting_train_station_key, 5) )
-    # # This is not possible, since the stations are NOT connected
-    # stops.append( (ending_train_station_key, 10) )
+    # Stops
+    stops = []
+    # The train waits 5 minutes at first station
+    stops.append( (starting_train_station_key, 5) )
+    # This is not possible, since the stations are NOT connected
+    stops.append( (ending_train_station_key, 10) )
 
-    # # The schedule starts everyday at 08:00 AM
-    # starting_hours_24_h, starting_minutes = 8, 0
+    # The schedule starts everyday at 08:00 AM
+    starting_hours_24_h, starting_minutes = 8, 0
 
-    # # The schedule is valid from 1 jan to 31 dec 2024
-    # valid_from_day, valid_from_month, valid_from_year = 1, 1, 2024
-    # valid_until_day, valid_until_month, valid_until_year = 31, 12, 2024
+    # The schedule is valid from 1 jan to 31 dec 2024
+    valid_from_day, valid_from_month, valid_from_year = 1, 1, 2024
+    valid_until_day, valid_until_month, valid_until_year = 31, 12, 2024
     
-    # with pytest.raises(ValueError) as exc_info:
-    #     # This should fail because stations are not connected
-    #     t.add_schedule(
-    #             train_key,
-    #             starting_hours_24_h, starting_minutes,
-    #             stops,
-    #             valid_from_day, valid_from_month, valid_from_year,
-    #             valid_until_day, valid_until_month, valid_until_year)
+    with pytest.raises(ValueError) as exc_info:
+        # This should fail because stations are not connected
+        t.add_schedule(
+                train_key,
+                starting_hours_24_h, starting_minutes,
+                stops,
+                valid_from_day, valid_from_month, valid_from_year,
+                valid_until_day, valid_until_month, valid_until_year)
