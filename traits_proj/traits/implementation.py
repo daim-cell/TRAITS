@@ -140,19 +140,21 @@ class TraitsUtility(TraitsUtilityInterface):
         sort_criteria = ["overallTravelTime", "numberOfTrains","totalWaitingTime", "Price"]
 
         order_clause = "ASC" if is_ascending else "DESC"
-        time_constraint = f"r.departure_time  >= '{travel_time}'" if is_departure_time else f"r.arrival_time <= '{travel_time}'"
-        query = (f"""MATCH (start:Station {{name: '{start_station}'}})
-                MATCH (end:Station {{name: '{end_station}'}})
+        time_constraint = f"datetime(r.departure_time)  >= datetime('{travel_time}')" if is_departure_time else f"datetime(r.arrival_time <= '{travel_time}')"
+        query = (f"""
+                MATCH (start:Station {{name: '{start_station}'}}),(end:Station {{name: '{end_station}'}})
                 MATCH path = (start)-[TRIP*]->(end)
                 WHERE ALL(r in relationships(path) WHERE {time_constraint})
                 WITH path, 
                     reduce(totalTravelTime = 0, r in relationships(path) | totalTravelTime + r.travel_time) AS overallTravelTime,
                     length(path) AS numberOfTrains,
-                    duration.between('{travel_time}', relationships(path)[0].departure_time).minutes AS initialWaitingTime,
+                    duration.between(datetime('{travel_time}'), relationships(path)[0].departure_time).minutes AS initialWaitingTime,
                     reduce(waitingTime = 0, idx in range(0, length(path) - 2) |
-                waitingTime + duration.between(relationships(path)[idx].arrival_time, relationships(path)[idx + 1].departure_time).minutes) AS intWaitingTime
-                WITH path, overallTravelTime, numberOfTrains,initialWaitingTime, intWaitingTime,initialWaitingTime + intWaitingTime AS totalWaitingTime
-                RETURN path, overallTravelTime, numberOfTrains, totalWaitingTime,
+                    waitingTime + duration.between(relationships(path)[idx].arrival_time, relationships(path)[idx + 1].departure_time).minutes) AS intWaitingTime, 
+                    relationships(path)[0].departure_time AS firstDepartureTime
+                WITH relationships(path) AS rels, overallTravelTime, numberOfTrains,initialWaitingTime, intWaitingTime,initialWaitingTime + intWaitingTime AS totalWaitingTime, firstDepartureTime
+                WHERE ALL(r in relationships(path) WHERE date(r.departure_time) = date(firstDepartureTime))
+                RETURN [r in rels | properties(r)] AS relations , overallTravelTime, numberOfTrains, totalWaitingTime,
                     (overallTravelTime - intWaitingTime) / 2 + (numberOfTrains * 2) AS Price
                 ORDER BY {sort_criteria[sort_by.value]} {order_clause} 
                 LIMIT {limit}
@@ -165,12 +167,14 @@ class TraitsUtility(TraitsUtilityInterface):
 
     def _fetch_details_from_mariadb(self, routes):
         detailed_routes = []
+        cursor = self.rdbms_admin_connection.cursor()
         for route in routes:
             details = []
-            for rel in route.relationships:
-                trip_id = rel['relationship']['properties']['trip_id']
-                self.rdbms_admin_connection.execute("SELECT * FROM Trips WHERE trip_id = ?;", (trip_id,))
-                details.extend(self.rdbms_connection.fetchall())
+            for connect in route['relations']:
+                cursor.execute("SELECT * FROM Trips WHERE trip_id = %s", (connect['trip_id'],))
+                rec = cursor.fetchall()
+                # return trip_ids only
+                details.append(rec[0][0])
             detailed_routes.append(details)
         return detailed_routes
     
@@ -298,7 +302,7 @@ class Traits(TraitsInterface):
         if starting_station_key.to_string() == ending_station_key.to_string():
             raise ValueError
         self.utility.search_station_keys(starting_station_key.to_int(), ending_station_key.to_int())
-        travel_time = datetime(travel_time_year, travel_time_month, travel_time_day) if travel_time_day or travel_time_month or travel_time_year else datetime.now()
+        travel_time = date(travel_time_year, travel_time_month, travel_time_day) if travel_time_day or travel_time_month or travel_time_year else datetime.now()
         travel_time_str = travel_time.strftime('%Y-%m-%dT%H:%M:%S')
 
          # Build the Neo4j query
@@ -417,7 +421,6 @@ class Traits(TraitsInterface):
             self.rdbms_admin_connection.commit()
             
         except Exception as ex:
-            print(ex)
             raise ValueError
         
     def update_train_details(self, train_key: TraitsKey, train_capacity: Optional[int] = None, train_status: Optional[TrainStatus] = None) -> None:
@@ -489,8 +492,7 @@ class Traits(TraitsInterface):
         
         except Exception as e:
             self.rdbms_admin_connection.rollback()
-            print(e)
-            raise e
+            raise ValueError
         finally:
             cursor.close()
     
@@ -582,15 +584,20 @@ class Traits(TraitsInterface):
             dates = self.utility.get_dates(valid_from_day, valid_from_month, valid_from_year,
                  valid_until_day, valid_until_month, valid_until_year)
             insert_trip_query = "INSERT INTO Trips (train_id, starting_station_id, ending_station_id, date, start_time, end_time) VALUES (%s,%s,%s,%s,%s,%s)"
-            for ind_date in dates:
-                for stop in stop_info:
-                    cursor.execute(insert_trip_query,(train_id, stop[0], stop[1], ind_date[0], stop[2], stop[3]) )
-                    with self.neo4j_driver.session() as session:
+            with self.neo4j_driver.session() as session:
+                for ind_date in dates:
+                    
+                    for stop in stop_info:
+                        cursor.execute(insert_trip_query,(train_id, stop[0], stop[1], ind_date[0], stop[2], stop[3]) )
                         query = """
                         MATCH (a:Station {name: $start_station_name}), (b:Station {name: $end_station_name})
-                        CREATE (a)-[:CONNECTS {departure_time: $departure_time, travel_time: $travel_time, arrival_time: $arrival_time, train_name: $train_name}]->(b)
+                        CREATE (a)-[:TRIP {trip_id: $trip_id, departure_time: $departure_time, travel_time: $travel_time, arrival_time: $arrival_time, train_name: $train_name}]->(b)
                         """
-                        session.run(query, start_station_name=stop[4], end_station_name=stop[5], departure_time=stop[2], travel_time=stop[6], arrival_time=stop[3], train_name=train_key.to_string())
+                        time_object1 = datetime.strptime(stop[2], '%H:%M:%S').time()
+                        dep_object = datetime.combine(ind_date[0], time_object1)
+                        time_object2 = datetime.strptime(stop[3], '%H:%M:%S').time()
+                        arr_object = datetime.combine(ind_date[0], time_object2)
+                        session.run(query, trip_id=cursor.lastrowid,start_station_name=stop[4], end_station_name=stop[5], departure_time=dep_object, travel_time=stop[6], arrival_time=arr_object, train_name=train_key.to_string())
 
 
 
