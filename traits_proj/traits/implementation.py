@@ -77,7 +77,7 @@ class TraitsUtility(TraitsUtilityInterface):
                 FOREIGN KEY (ending_station_id) REFERENCES Stations(station_id) ON DELETE CASCADE
             );""",
             # Views
-            """ CREATE VIEW Purchase AS
+            """ CREATE VIEW IF NOT EXISTS Purchase AS
                 SELECT
                     tk.booking_time AS purchase_time,
                     tk.ticket_id, u.email AS user_email,
@@ -179,7 +179,7 @@ class TraitsUtility(TraitsUtilityInterface):
         return detailed_routes
     
     def check_available_seats(self, trip_id: int) -> int:
-        cursor = self.rdbms_connection.cursor()
+        cursor = self.rdbms_admin_connection.cursor()
         
         # Fetch the train_id for the given trip_id
         cursor.execute("SELECT train_id FROM Trips WHERE trip_id = %s;", (trip_id,))
@@ -319,11 +319,12 @@ class Traits(TraitsInterface):
         Check the status of a train. If the train does not exist returns None
         """
         # Implementation here
+        # This is a problem why normal user can get status of a train
         cursor = self.rdbms_admin_connection.cursor()
         cursor.execute("SELECT t.status FROM Trains t WHERE t.train_name = %s;", (train_key.to_string(),))
         status = cursor.fetchone()
         if status is not None:
-            return status[0]
+            return TrainStatus(status[0])
         return None
 
     def buy_ticket(self, user_email: str, connection, also_reserve_seats=True):
@@ -331,40 +332,41 @@ class Traits(TraitsInterface):
         Given a train connection instance (e.g., on a given date/time), registered users can book tickets and optionally reserve seats.
         """
         # Implementation here
-        cursor = self.rdbms_connection.cursor()
+        cursor = self.rdbms_admin_connection.cursor()
         # Assuming the connection parameter is a trip object
         # Fetch trip details and calculate the total price
         cursor.execute("SELECT * FROM Users WHERE email = %s;", (user_email,))
         user = cursor.fetchone()
         if not user:
-            raise ValueError("User does not exist")
+            raise ValueError
 
 
         # Insert into Tickets table
         cursor.execute(
             "INSERT INTO Tickets (user_id, trip_id, reserved_seat) VALUES (%s, %s, %s);",
-            (user.user_id, connection.trip_id, also_reserve_seats)
+            (user[0], connection, also_reserve_seats)
         )
         ticket_id = cursor.lastrowid
 
         if also_reserve_seats:
             # Check available seats
-            available_seats = self.utility.check_available_seats(connection.trip_id)
+            available_seats = self.utility.check_available_seats(connection)
             if available_seats > 0:
                 # Insert into Reservations table
                 cursor.execute(
                     "INSERT INTO Reservations (ticket_id) VALUES (%s);", (ticket_id,)
                 )
             else:
-                raise ValueError('No Seats to reserve')
+                raise ValueError
 
         self.rdbms_connection.commit()
+        return cursor.lastrowid
 
     def get_purchase_history(self, user_email: str) -> List:
         """
         Access Purchase History
         """
-        cursor = self.rdbms_connection.cursor()
+        cursor = self.rdbms_admin_connection.cursor()
         # Implementation here
         cursor.execute("SELECT * FROM Users WHERE email = %s;", (user_email,))
         user = cursor.fetchone()
@@ -399,6 +401,9 @@ class Traits(TraitsInterface):
         Delete the user from the db if the user exists.
         """
         cursor = self.rdbms_admin_connection.cursor()
+        cursor.execute("SELECT COUNT(*) FROM Users WHERE email = %s;", (user_email,))
+        if cursor.fetchone()[0] == 0:
+            raise ValueError
         # Implementation here
         cursor.execute("DELETE FROM Users WHERE email = %s;", (user_email,))
         # The data should delete itself on the basis of cascade
@@ -416,10 +421,10 @@ class Traits(TraitsInterface):
             VALUES (%s, %s, %s);
             """
             
-            cursor.execute(insert_train_query, (train_key.to_string(),  train_capacity, train_status.value))
-           
+            rec = cursor.execute(insert_train_query, (train_key.to_string(),  train_capacity, train_status.value))
+
             self.rdbms_admin_connection.commit()
-            
+            return rec
         except Exception as ex:
             raise ValueError
         
@@ -429,6 +434,10 @@ class Traits(TraitsInterface):
         """
         # Implementation here
         cursor = self.rdbms_admin_connection.cursor()
+        cursor.execute("SELECT COUNT(*) FROM Trains WHERE train_name = %s;", (train_key.to_string(),))
+
+        if cursor.fetchone()[0] == 0:
+            raise ValueError
         try:
             if train_capacity is not None:
                 update_capacity_query = """
