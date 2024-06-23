@@ -13,7 +13,6 @@ class TraitsUtility(TraitsUtilityInterface):
         Returns a list of string each one containing a SQL statement to setup the database.
         """
         # Implementation here
-
         return [
             """CREATE TABLE IF NOT EXISTS Users (
                 user_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -107,12 +106,20 @@ class TraitsUtility(TraitsUtilityInterface):
                 SET minutes_diff = TIMESTAMPDIFF(MINUTE, start_time, end_time);
                 SET NEW.price = (minutes_diff / 2) + 2;
             END;""",
-            f"DROP USER IF EXISTS '{ADMIN_USER_NAME}'@'%';",
+            
+            f"DROP USER IF EXISTS 'anonymous'@'%';",
+            f"CREATE USER 'anonymous'@'%' IDENTIFIED BY '';"
+            f"GRANT SELECT ON test.Trains TO 'anonymous'@'%';",
+            f"GRANT SELECT ON test.Stations TO 'anonymous'@'%';",
+            f"GRANT SELECT ON test.Trips TO 'anonymous'@'%';",
+            f"FLUSH PRIVILEGES;",
             f"DROP USER IF EXISTS '{BASE_USER_NAME}'@'%';",
-            f"CREATE USER '{ADMIN_USER_NAME}'@'%' IDENTIFIED BY '{ADMIN_USER_PASS}';",
             f"CREATE USER '{BASE_USER_NAME}'@'%' IDENTIFIED BY '{BASE_USER_PASS}';",
-            f"GRANT ALL PRIVILEGES ON test.* TO '{ADMIN_USER_NAME}'@'%';"
-            f"GRANT SELECT, INSERT, UPDATE ON test.* TO '{BASE_USER_NAME}'@'%';"
+            f"GRANT ALL ON test.* TO '{BASE_USER_NAME}'@'%';",
+            f"DROP USER IF EXISTS '{ADMIN_USER_NAME}'@'%';",
+            f"CREATE USER '{ADMIN_USER_NAME}'@'%' IDENTIFIED BY '{ADMIN_USER_PASS}';",
+            f"GRANT ALL ON test.* TO '{ADMIN_USER_NAME}'@'%';",
+            f"FLUSH PRIVILEGES;"
 
         ]
 
@@ -167,7 +174,16 @@ class TraitsUtility(TraitsUtilityInterface):
 
     def _fetch_details_from_mariadb(self, routes):
         detailed_routes = []
+       
         cursor = self.rdbms_admin_connection.cursor()
+        cursor.execute(f"SELECT * FROM Trips;")
+        rec = cursor.fetchall()
+        print(rec)
+        # cursor = self.rdbms_connection.cursor()
+        # cursor.execute(f"SELECT * FROM Trips;")
+        # rec = cursor.fetchall()
+        # print(rec)
+
         for route in routes:
             details = []
             for connect in route['relations']:
@@ -275,7 +291,55 @@ class TraitsUtility(TraitsUtilityInterface):
         end_hours = end_datetime.time().hour
         end_minutes = end_datetime.time().minute
         return end_time, end_hours, end_minutes
+    
+    def is_schedule_feasible(self, train_id: int, start_time: datetime, end_time: datetime) -> bool:
+        # Check if a train is already scheduled during this time
+        cursor = self.rdbms_connection.cursor()
+        cursor.execute(
+            """
+            SELECT COUNT(*) FROM Schedules 
+            WHERE train_id = %s AND (
+                (start_time <= %s AND end_time >= %s) OR 
+                (start_time <= %s AND end_time >= %s)
+            );
+            """, (train_id, end_time, start_time, end_time, start_time)
+        )
+        overlapping_schedules = cursor.fetchone()[0]
         
+        if overlapping_schedules > 0:
+            return False
+        # Ensure at least 6 hours before next day's first start
+        cursor.execute(
+            """
+            SELECT start_time FROM Schedules 
+            WHERE train_id = %s AND start_time > %s 
+            ORDER BY start_time ASC LIMIT 1;
+            """, (train_id, start_time)
+        )
+        next_start_time = cursor.fetchone()
+        if next_start_time:
+            next_start_time = next_start_time[0]
+            if (next_start_time - end_time).total_seconds() < 21600:
+                return False
+
+        return True
+    
+    def add_schedule(self, train_id: int, start_station_id: int, end_station_id: int, start_time: datetime, end_time: datetime, valid_from: date, valid_until: date) -> None:
+        
+        start_time = datetime.strptime(start_time, '%H:%M:%S')
+        end_time = datetime.strptime(end_time, '%H:%M:%S')
+        if not self.is_schedule_feasible(train_id, start_time, end_time):
+            raise ValueError
+
+        cursor = self.rdbms_admin_connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO Schedules (train_id, starting_station_id, ending_station_id, start_time, end_time, valid_from, valid_until)
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+            """, (train_id, start_station_id, end_station_id, start_time.time(), end_time.time(), valid_from, valid_until)
+        )
+        self.rdbms_admin_connection.commit()
+
 
     
 class Traits(TraitsInterface):
@@ -582,13 +646,7 @@ class Traits(TraitsInterface):
             
             valid_from = f"{valid_from_year}-{valid_from_month:02d}-{valid_from_day:02d}"
             valid_until = f"{valid_until_year}-{valid_until_month:02d}-{valid_until_day:02d}"
-            insert_schedule_query = """
-            INSERT INTO Schedules (train_id, starting_station_id, ending_station_id, start_time, end_time, valid_from, valid_until)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(insert_schedule_query, (train_id, stop_info[0][0], stop_info[-1][1], f"{starting_hours_24_h}:{starting_minutes}:00", stop_info[-1][3], valid_from, valid_until))
-
-
+            self.utility.add_schedule(train_id, stop_info[0][0], stop_info[-1][1],f"{starting_hours_24_h}:{starting_minutes}:00", stop_info[-1][3], valid_from, valid_until )
             dates = self.utility.get_dates(valid_from_day, valid_from_month, valid_from_year,
                  valid_until_day, valid_until_month, valid_until_year)
             insert_trip_query = "INSERT INTO Trips (train_id, starting_station_id, ending_station_id, date, start_time, end_time) VALUES (%s,%s,%s,%s,%s,%s)"
@@ -606,7 +664,6 @@ class Traits(TraitsInterface):
                         time_object2 = datetime.strptime(stop[3], '%H:%M:%S').time()
                         arr_object = datetime.combine(ind_date[0], time_object2)
                         session.run(query, trip_id=cursor.lastrowid,start_station_name=stop[4], end_station_name=stop[5], departure_time=dep_object, travel_time=stop[6], arrival_time=arr_object, train_name=train_key.to_string())
-
 
 
             # Insert the schedule into the database
