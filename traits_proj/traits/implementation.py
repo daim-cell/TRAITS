@@ -319,7 +319,7 @@ class Traits(TraitsInterface):
         Check the status of a train. If the train does not exist returns None
         """
         # Implementation here
-        cursor = self.rdbms_connection.cursor()
+        cursor = self.rdbms_admin_connection.cursor()
         cursor.execute("SELECT t.status FROM Trains t WHERE t.train_name = %s;", (train_key.to_string(),))
         status = cursor.fetchone()
         if status is not None:
@@ -434,14 +434,13 @@ class Traits(TraitsInterface):
                 update_capacity_query = """
                 UPDATE Trains SET capacity = %s WHERE train_name = %s;
                 """
-                cursor.execute(update_capacity_query, (train_capacity, train_key.to_string()))
+                cursor.execute(update_capacity_query, (train_capacity, train_key.to_string(),))
             
             if train_status is not None:
                 update_status_query = """
                 UPDATE Trains SET status = %s WHERE train_name = %s;
                 """
-                print('update', train_status.value, train_key.to_string())
-                cursor.execute(update_status_query, (train_status.value, train_key.to_string()))
+                cursor.execute(update_status_query, (train_status.value, train_key.to_string(),))
             
             
             self.rdbms_admin_connection.commit()

@@ -142,7 +142,6 @@ def test_update_train_details(rdbms_connection, rdbms_admin_connection, neo4j_db
     
     t.update_train_details(train_key, train_status=TrainStatus.DELAYED)
     updated_status = t.get_train_current_status(train_key)
-    print('test',updated_status, current_status )
     assert updated_status != current_status, f"wrong train updated status {updated_status}"
 
 
