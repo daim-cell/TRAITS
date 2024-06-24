@@ -226,7 +226,7 @@ class TraitsUtility(TraitsUtilityInterface):
         available_seats = train_capacity - reserved_seats
         return available_seats
 
-    def search_station_keys(self, starting_station_key: int, ending_station_key: int) -> None:
+    def search_station_keys(self, starting_station_key: int|str, ending_station_key: int|str) -> None:
         """
         Check if the starting and ending station keys exist in the Stations table.
         Raise a ValueError if any of the keys do not exist.
@@ -378,7 +378,7 @@ class Traits(TraitsInterface):
         # Implementation here
         if starting_station_key.to_string() == ending_station_key.to_string():
             raise ValueError
-        self.utility.search_station_keys(starting_station_key.to_int(), ending_station_key.to_int())
+        self.utility.search_station_keys(starting_station_key.to_string(), ending_station_key.to_string())
         travel_time = date(travel_time_year, travel_time_month, travel_time_day) if travel_time_day or travel_time_month or travel_time_year else datetime.now()
         travel_time_str = travel_time.strftime('%Y-%m-%dT%H:%M:%S')
 
@@ -587,7 +587,7 @@ class Traits(TraitsInterface):
         # Implementation here
         
         try:
-            self.utility.search_station_keys(starting_train_station_key.to_int(), ending_train_station_key.to_int())
+            self.utility.search_station_keys(starting_train_station_key.to_string(), ending_train_station_key.to_string())
 
             if travel_time_in_minutes < 1 or travel_time_in_minutes > 60:
                 raise ValueError 
