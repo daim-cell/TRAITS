@@ -112,7 +112,7 @@ class TraitsUtility(TraitsUtilityInterface):
             f"GRANT SELECT ON test.Trains TO 'anonymous'@'%';",
             f"GRANT SELECT ON test.Stations TO 'anonymous'@'%';",
             f"GRANT SELECT ON test.Trips TO 'anonymous'@'%';",
-            f"FLUSH PRIVILEGES;",
+            
             f"DROP USER IF EXISTS '{BASE_USER_NAME}'@'%';",
             f"CREATE USER '{BASE_USER_NAME}'@'%' IDENTIFIED BY '{BASE_USER_PASS}';",
             f"GRANT ALL ON test.* TO '{BASE_USER_NAME}'@'%';",
@@ -130,15 +130,14 @@ class TraitsUtility(TraitsUtilityInterface):
         cursor = self.rdbms_admin_connection.cursor()
         cursor.execute("SELECT * FROM Users")
         users = cursor.fetchall()
-        return users
-        
+        return users       
 
     def get_all_schedules(self) -> List:
         """
         Return all the schedules stored in the database
         """
         # Implementation here
-        cursor = self.rdbms_admin_connection.cursor()
+        cursor = self.rdbms_connection.cursor()
         cursor.execute("SELECT * FROM Schedules")
         schedules = cursor.fetchall()
         return schedules
@@ -174,15 +173,7 @@ class TraitsUtility(TraitsUtilityInterface):
 
     def _fetch_details_from_mariadb(self, routes):
         detailed_routes = []
-       
-        cursor = self.rdbms_admin_connection.cursor()
-        cursor.execute(f"SELECT * FROM Trips;")
-        rec = cursor.fetchall()
-        print(rec)
-        # cursor = self.rdbms_connection.cursor()
-        # cursor.execute(f"SELECT * FROM Trips;")
-        # rec = cursor.fetchall()
-        # print(rec)
+        cursor = self.rdbms_connection.cursor()
 
         for route in routes:
             details = []
@@ -190,7 +181,7 @@ class TraitsUtility(TraitsUtilityInterface):
                 cursor.execute("SELECT * FROM Trips WHERE trip_id = %s", (connect['trip_id'],))
                 rec = cursor.fetchall()
                 # return trip_ids only
-                details.append(rec[0][0])
+                details.append(rec[0])
             detailed_routes.append(details)
         return detailed_routes
     
@@ -292,20 +283,34 @@ class TraitsUtility(TraitsUtilityInterface):
         end_minutes = end_datetime.time().minute
         return end_time, end_hours, end_minutes
     
-    def is_schedule_feasible(self, train_id: int, start_time: datetime, end_time: datetime) -> bool:
+    def is_schedule_feasible(self, train_id: int, start_time: time, end_time: time, valid_from: date, valid_until: date) -> bool:
         # Check if a train is already scheduled during this time
         cursor = self.rdbms_connection.cursor()
+        
+        new_start_time = timedelta(hours=int(start_time.split(':')[0]), 
+                           minutes=int(start_time.split(':')[1]), 
+                           seconds=int(start_time.split(':')[2]))
+        new_end_time = timedelta(hours=int(end_time.split(':')[0]), 
+                         minutes=int(end_time.split(':')[1]), 
+                         seconds=int(end_time.split(':')[2]))
+        print(new_start_time, new_end_time)
+        
         cursor.execute(
             """
-            SELECT COUNT(*) FROM Schedules 
-            WHERE train_id = %s AND (
-                (start_time <= %s AND end_time >= %s) OR 
-                (start_time <= %s AND end_time >= %s)
+            SELECT COUNT(*) FROM Schedules
+            WHERE train_id = %s
+            AND (
+                (%s BETWEEN valid_from AND valid_until OR %s BETWEEN valid_from AND valid_until)
+                OR
+                (valid_from BETWEEN %s AND %s OR valid_until BETWEEN %s AND %s)
+            )
+            AND (
+                (%s < end_time AND %s > start_time)
             );
-            """, (train_id, end_time, start_time, end_time, start_time)
+            """, (train_id, valid_from, valid_until, valid_from, valid_until, valid_from, valid_until, new_start_time, new_end_time, )
         )
         overlapping_schedules = cursor.fetchone()[0]
-        
+
         if overlapping_schedules > 0:
             return False
         # Ensure at least 6 hours before next day's first start
@@ -324,11 +329,11 @@ class TraitsUtility(TraitsUtilityInterface):
 
         return True
     
-    def add_schedule(self, train_id: int, start_station_id: int, end_station_id: int, start_time: datetime, end_time: datetime, valid_from: date, valid_until: date) -> None:
+    def add_schedule(self, train_id: int, start_station_id: int, end_station_id: int, start_time: time, end_time: time, valid_from: date, valid_until: date) -> None:
         
-        start_time = datetime.strptime(start_time, '%H:%M:%S')
-        end_time = datetime.strptime(end_time, '%H:%M:%S')
-        if not self.is_schedule_feasible(train_id, start_time, end_time):
+        # start_time = datetime.strptime(start_time, '%H:%M:%S')
+        # end_time = datetime.strptime(end_time, '%H:%M:%S')
+        if not self.is_schedule_feasible(train_id, start_time, end_time, valid_from, valid_until):
             raise ValueError
 
         cursor = self.rdbms_admin_connection.cursor()
@@ -336,7 +341,7 @@ class TraitsUtility(TraitsUtilityInterface):
             """
             INSERT INTO Schedules (train_id, starting_station_id, ending_station_id, start_time, end_time, valid_from, valid_until)
             VALUES (%s, %s, %s, %s, %s, %s, %s);
-            """, (train_id, start_station_id, end_station_id, start_time.time(), end_time.time(), valid_from, valid_until)
+            """, (train_id, start_station_id, end_station_id, start_time, end_time, valid_from, valid_until)
         )
         self.rdbms_admin_connection.commit()
 
@@ -384,7 +389,7 @@ class Traits(TraitsInterface):
         """
         # Implementation here
         # This is a problem why normal user can get status of a train
-        cursor = self.rdbms_admin_connection.cursor()
+        cursor = self.rdbms_connection.cursor()
         cursor.execute("SELECT t.status FROM Trains t WHERE t.train_name = %s;", (train_key.to_string(),))
         status = cursor.fetchone()
         if status is not None:
@@ -396,7 +401,7 @@ class Traits(TraitsInterface):
         Given a train connection instance (e.g., on a given date/time), registered users can book tickets and optionally reserve seats.
         """
         # Implementation here
-        cursor = self.rdbms_admin_connection.cursor()
+        cursor = self.rdbms_connection.cursor()
         # Assuming the connection parameter is a trip object
         # Fetch trip details and calculate the total price
         cursor.execute("SELECT * FROM Users WHERE email = %s;", (user_email,))
@@ -408,13 +413,13 @@ class Traits(TraitsInterface):
         # Insert into Tickets table
         cursor.execute(
             "INSERT INTO Tickets (user_id, trip_id, reserved_seat) VALUES (%s, %s, %s);",
-            (user[0], connection, also_reserve_seats)
+            (user[0], connection[0], also_reserve_seats)
         )
         ticket_id = cursor.lastrowid
 
         if also_reserve_seats:
             # Check available seats
-            available_seats = self.utility.check_available_seats(connection)
+            available_seats = self.utility.check_available_seats(connection[0])
             if available_seats > 0:
                 # Insert into Reservations table
                 cursor.execute(
@@ -430,13 +435,12 @@ class Traits(TraitsInterface):
         """
         Access Purchase History
         """
-        cursor = self.rdbms_admin_connection.cursor()
+        cursor = self.rdbms_connection.cursor()
         # Implementation here
         cursor.execute("SELECT * FROM Users WHERE email = %s;", (user_email,))
         user = cursor.fetchone()
         if not user:
             return []
-        cursor = self.rdbms_connection.cursor()
         cursor.execute("""SELECT *
                         FROM Purchase
                         WHERE user_email = %s

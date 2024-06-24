@@ -93,6 +93,7 @@ def connection_factory(mariadb, mariadb_host, mariadb_port, mariadb_database):
                 db_Info = connection.get_server_info()
                 # print("Connected to MariaDB Server version ", db_Info)
                 cursor = connection.cursor()
+                cursor.execute('SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;')
                 cursor.execute("select database();")
                 record = cursor.fetchone()
                 # print("You're connected to database: ", record)
