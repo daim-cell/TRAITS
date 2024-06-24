@@ -311,8 +311,9 @@ def test_invalid_delete_user(rdbms_connection, rdbms_admin_connection, neo4j_db)
 def test_add_train_without_permission(rdbms_connection, rdbms_admin_connection, neo4j_db):
     t = Traits(rdbms_connection, rdbms_connection, neo4j_db)
     # The permission is not there
-    rec = t.add_train(TraitsKey('T2'), 50, TrainStatus.OPERATIONAL)
-    assert rec == None
+    with pytest.raises(ValueError):
+        rec = t.add_train(TraitsKey('T2'), 50, TrainStatus.OPERATIONAL)
+   
 
 def test_update_train_details_failure(rdbms_connection, rdbms_admin_connection, neo4j_db):
     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)

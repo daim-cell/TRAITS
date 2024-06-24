@@ -115,7 +115,15 @@ class TraitsUtility(TraitsUtilityInterface):
             
             f"DROP USER IF EXISTS '{BASE_USER_NAME}'@'%';",
             f"CREATE USER '{BASE_USER_NAME}'@'%' IDENTIFIED BY '{BASE_USER_PASS}';",
-            f"GRANT ALL ON test.* TO '{BASE_USER_NAME}'@'%';",
+            f"GRANT SELECT ON test.Users TO '{BASE_USER_NAME}'@'%';",
+            f"GRANT SELECT ON test.Schedules TO '{BASE_USER_NAME}'@'%';",
+            f"GRANT SELECT, INSERT ON test.Tickets TO '{BASE_USER_NAME}'@'%';",
+            f"GRANT SELECT, INSERT ON test.Reservations TO '{BASE_USER_NAME}'@'%';",
+            f"GRANT SELECT, INSERT ON test.Purchase TO '{BASE_USER_NAME}'@'%';",
+            f"GRANT SELECT ON test.Trains TO '{BASE_USER_NAME}'@'%';",
+            f"GRANT SELECT ON test.Stations TO '{BASE_USER_NAME}'@'%';",
+            f"GRANT SELECT ON test.Trips TO '{BASE_USER_NAME}'@'%';",
+
             f"DROP USER IF EXISTS '{ADMIN_USER_NAME}'@'%';",
             f"CREATE USER '{ADMIN_USER_NAME}'@'%' IDENTIFIED BY '{ADMIN_USER_PASS}';",
             f"GRANT ALL ON test.* TO '{ADMIN_USER_NAME}'@'%';",
