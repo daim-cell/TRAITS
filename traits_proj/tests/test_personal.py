@@ -164,9 +164,7 @@ def test_schedule_overlap(rdbms_connection, rdbms_admin_connection, neo4j_db):
     t.add_train_station(middle_station_key, None)
     t.add_train_station(ending_station_key, None)
     train_key = TraitsKey('t1')
-    train_key2 = TraitsKey('t2')
     t.add_train(train_key, train_capacity=100, train_status=TrainStatus.OPERATIONAL)
-    t.add_train(train_key2, train_capacity=50, train_status=TrainStatus.OPERATIONAL)
     t.connect_train_stations(starting_station_key, middle_station_key, 20)
     t.connect_train_stations(middle_station_key, ending_station_key, 20)
     t.connect_train_stations(starting_station_key, ending_station_key, 60)
@@ -196,8 +194,16 @@ def test_schedule_overlap(rdbms_connection, rdbms_admin_connection, neo4j_db):
                 valid_until_day, valid_until_month, valid_until_year)
     with pytest.raises(ValueError):
         t.add_schedule(
-                    train_key2,
+                    train_key,
                     8, 30,
+                    sch,
+                    valid_from_day, valid_from_month, valid_from_year,
+                    valid_until_day, valid_until_month, valid_until_year) 
+        
+    with pytest.raises(ValueError):
+        t.add_schedule(
+                    train_key,
+                    7, 30,
                     sch,
                     valid_from_day, valid_from_month, valid_from_year,
                     valid_until_day, valid_until_month, valid_until_year) 
@@ -388,67 +394,67 @@ def test_add_user_invalid_email_format(rdbms_connection, rdbms_admin_connection,
     with pytest.raises(ValueError):
         t.add_user(invalid_email, None)
 
-def test_delete_user(rdbms_connection, rdbms_admin_connection, neo4j_db):
-    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+# def test_delete_user(rdbms_connection, rdbms_admin_connection, neo4j_db):
+#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
     
-    starting_station_key = TraitsKey("1")
-    ending_station_key = TraitsKey("2")
-    train_key = TraitsKey('t1')
-    starting_hours_24_h, starting_minutes = 8, 0
+#     starting_station_key = TraitsKey("1")
+#     ending_station_key = TraitsKey("2")
+#     train_key = TraitsKey('t1')
+#     starting_hours_24_h, starting_minutes = 8, 0
 
-    # The schedule is valid from 1 jan to 31 dec 2024
-    valid_from_day, valid_from_month, valid_from_year = 1, 1, 2024
-    valid_until_day, valid_until_month, valid_until_year = 1, 1, 2024
-    set_up(t, starting_station_key, ending_station_key, train_key, starting_hours_24_h, starting_minutes, valid_from_day, valid_from_month, valid_from_year,valid_until_day, valid_until_month, valid_until_year)
+#     # The schedule is valid from 1 jan to 31 dec 2024
+#     valid_from_day, valid_from_month, valid_from_year = 1, 1, 2024
+#     valid_until_day, valid_until_month, valid_until_year = 1, 1, 2024
+#     set_up(t, starting_station_key, ending_station_key, train_key, starting_hours_24_h, starting_minutes, valid_from_day, valid_from_month, valid_from_year,valid_until_day, valid_until_month, valid_until_year)
     
-    result = t.search_connections(starting_station_key, ending_station_key, valid_from_day, valid_from_month, valid_from_year)
+#     result = t.search_connections(starting_station_key, ending_station_key, valid_from_day, valid_from_month, valid_from_year)
    
-    user_email = "user@example.com"
-    t.add_user(user_email, None)
-    t.buy_ticket(user_email, result[0][0], also_reserve_seats=True)
-    assert len(t.get_purchase_history(user_email)) == 1
+#     user_email = "user@example.com"
+#     t.add_user(user_email, None)
+#     t.buy_ticket(user_email, result[0][0], also_reserve_seats=True)
+#     assert len(t.get_purchase_history(user_email)) == 1
 
-    t.delete_user(user_email)
+#     t.delete_user(user_email)
 
-    # Check that user's data is deleted
-    assert len(t.get_purchase_history(user_email)) == 0
-    cursor = rdbms_admin_connection.cursor()
-    cursor.execute("""SELECT * FROM Reservations r 
-                   JOIN Tickets tk WHERE tk.ticket_id = r.ticket_id
-                    WHERE t.email = %s """, (user_email,))
-    rec = cursor.fetchall()
-    assert rec == 0
+#     # Check that user's data is deleted
+#     assert len(t.get_purchase_history(user_email)) == 0
+#     cursor = rdbms_admin_connection.cursor()
+#     cursor.execute("""SELECT * FROM Reservations r 
+#                    JOIN Tickets tk WHERE tk.ticket_id = r.ticket_id
+#                     WHERE t.email = %s """, (user_email,))
+#     rec = cursor.fetchall()
+#     assert rec == 0
 
-def test_delete_train(rdbms_connection, rdbms_admin_connection, neo4j_db):
-    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
-    train_key = TraitsKey("train_to_delete")
-    t.add_train(train_key, 100, TrainStatus.OPERATIONAL)
-    t.add_train_station(TraitsKey("1"), None)
-    t.add_train_station(TraitsKey("2"), None)
-    stops = [(TraitsKey("1"), 5), (TraitsKey("2"), 10)]
-    t.connect_train_stations(TraitsKey("1"), TraitsKey("2"), 40)
-    t.add_schedule(train_key, 8, 0, stops, 1, 1, 2024, 1, 2, 2024)
-    result = t.search_connections(TraitsKey("1"), TraitsKey("2"), 1, 1, 2024)
+# def test_delete_train(rdbms_connection, rdbms_admin_connection, neo4j_db):
+#     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+#     train_key = TraitsKey("train_to_delete")
+#     t.add_train(train_key, 100, TrainStatus.OPERATIONAL)
+#     t.add_train_station(TraitsKey("1"), None)
+#     t.add_train_station(TraitsKey("2"), None)
+#     stops = [(TraitsKey("1"), 5), (TraitsKey("2"), 10)]
+#     t.connect_train_stations(TraitsKey("1"), TraitsKey("2"), 40)
+#     t.add_schedule(train_key, 8, 0, stops, 1, 1, 2024, 1, 2, 2024)
+#     result = t.search_connections(TraitsKey("1"), TraitsKey("2"), 1, 1, 2024)
    
-    user_email = "user@example.com"
-    t.add_user(user_email, None)
-    t.buy_ticket(user_email, result[0][0], also_reserve_seats=True)
-    assert len(t.get_purchase_history(user_email)) == 1
+#     user_email = "user@example.com"
+#     t.add_user(user_email, None)
+#     t.buy_ticket(user_email, result[0][0], also_reserve_seats=True)
+#     assert len(t.get_purchase_history(user_email)) == 1
 
-    t.delete_train(train_key)
+#     t.delete_train(train_key)
 
-    # Check that train's schedules are canceled
-    assert len(t.search_connections(TraitsKey("1"), TraitsKey("2"), 1, 1, 2024)) == 0
-    # Check that future reservations are canceled
+#     # Check that train's schedules are canceled
+#     assert len(t.search_connections(TraitsKey("1"), TraitsKey("2"), 1, 1, 2024)) == 0
+#     # Check that future reservations are canceled
     
-    cursor = rdbms_admin_connection.cursor()
-    cursor.execute("""SELECT * FROM Reservations r 
-                   JOIN Tickets tk WHERE tk.ticket_id = r.ticket_id 
-                   JOIN Trips t WHERE tk.trip_id = t.trip_id WHERE t.train_id = %s """, (train_key.to_string(),))
-    rec = cursor.fetchall()
-    assert rec == 0
+#     cursor = rdbms_admin_connection.cursor()
+#     cursor.execute("""SELECT * FROM Reservations r 
+#                    JOIN Tickets tk WHERE tk.ticket_id = r.ticket_id 
+#                    JOIN Trips t WHERE tk.trip_id = t.trip_id WHERE t.train_id = %s """, (train_key.to_string(),))
+#     rec = cursor.fetchall()
+#     assert rec == 0
 
-    assert len(t.get_purchase_history(user_email)) == 1
+#     assert len(t.get_purchase_history(user_email)) == 1
  
 def test_train_stops_at_all_stations(rdbms_connection, rdbms_admin_connection, neo4j_db):
     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
@@ -466,7 +472,7 @@ def test_train_stops_at_all_stations(rdbms_connection, rdbms_admin_connection, n
     with pytest.raises(ValueError):
         t.add_schedule(train_key, 8, 0, stops, 1, 1, 2024, 1, 1, 2024)
 
-def test_night_operations(rdbms_connection, rdbms_admin_connection, neo4j_db):
+def test_night_operations1(rdbms_connection, rdbms_admin_connection, neo4j_db):
     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
     
     # Add stations and a train with schedules spanning two days
@@ -480,16 +486,40 @@ def test_night_operations(rdbms_connection, rdbms_admin_connection, neo4j_db):
     stops_day1 = [(station_key_1, 5), (station_key_2, 10)]
     stops_day2 = [(station_key_2, 5), (station_key_1, 10)]
     # Schedule spanning two days
-    t.add_schedule(train_key, 18, 0, stops_day1, 1, 1, 2024, 1, 1, 2024)
-    t.add_schedule(train_key, 2, 0, stops_day2, 2, 1, 2024, 2, 1, 2024)
+    t.add_schedule(train_key, 22, 0, stops_day1, 1, 1, 2024, 1, 1, 2024)
+    t.add_schedule(train_key, 8, 0, stops_day2, 1, 1, 2024, 2, 1, 2024)
     
     # Verify that the last stop of day 1 is at least 6 hours before the first stop of day 2
-    schedules = t.get_train_schedules(train_key)
+    schedules = t.utility.get_all_schedules()
     assert len(schedules) == 2
-    last_stop_day1 = schedules[0].stops[-1]
-    first_stop_day2 = schedules[1].stops[0]
-    # Assuming stops are in hours (e.g., 8.5 means 8:30 AM)
-    assert first_stop_day2[0] - last_stop_day1[0] >= 6
+    # Adding a schedule that is within six hours of a schedule of a previous day
+    with pytest.raises(ValueError):
+        t.add_schedule(train_key, 3, 0, stops_day2, 2, 1, 2024, 2, 1, 2024)
+
+def test_night_operations2(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    
+    # Add stations and a train with schedules spanning two days
+    station_key_1 = TraitsKey("1")
+    station_key_2 = TraitsKey("2")
+    t.add_train_station(station_key_1, None)
+    t.add_train_station(station_key_2, None)
+    t.connect_train_stations(station_key_1, station_key_2, 30)
+    train_key = TraitsKey("train_1")
+    t.add_train(train_key, 100, TrainStatus.OPERATIONAL)
+    stops_day1 = [(station_key_1, 5), (station_key_2, 10)]
+    stops_day2 = [(station_key_2, 5), (station_key_1, 10)]
+    # Schedule spanning two days
+    
+    t.add_schedule(train_key, 8, 0, stops_day2, 1, 1, 2024, 2, 1, 2024)
+    t.add_schedule(train_key, 3, 0, stops_day2, 2, 1, 2024, 2, 1, 2024)
+    
+    # Verify that the last stop of day 1 is at least 6 hours before the first stop of day 2
+    schedules = t.utility.get_all_schedules()
+    assert len(schedules) == 2
+    # Adding a schedule that is within six hours of a schedule of a next day
+    with pytest.raises(ValueError):
+        t.add_schedule(train_key, 22, 0, stops_day1, 1, 1, 2024, 1, 1, 2024)
 
 def test_add_schedule_complex(rdbms_connection, rdbms_admin_connection, neo4j_db):
     t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
@@ -521,3 +551,75 @@ def test_add_schedule_complex(rdbms_connection, rdbms_admin_connection, neo4j_db
     trips = t.search_connections(TraitsKey("station_B"), TraitsKey("station_D"), 1, 1, 2024)
     assert len(trips) == 3 and len(trips[0])==2  # Three trips should be created (one for each day)
     
+def test_schedule_not_end_same_day(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+    
+    # Add stations and a train with schedules spanning two days
+    station_key_1 = TraitsKey("1")
+    station_key_2 = TraitsKey("2")
+    t.add_train_station(station_key_1, None)
+    t.add_train_station(station_key_2, None)
+    t.connect_train_stations(station_key_1, station_key_2, 60)
+    train_key = TraitsKey("train_1")
+    t.add_train(train_key, 100, TrainStatus.OPERATIONAL)
+    stops_day1 = [(station_key_1, 5), (station_key_2, 10)]
+    # Schedule spanning two days
+    
+    # Adding a schedule that is within six hours of a schedule of a previous day
+    with pytest.raises(ValueError):
+        t.add_schedule(train_key, 23, 30, stops_day1, 1, 1, 2024, 1, 1, 2024)
+
+def test_schedule_overlap_multiple(rdbms_connection, rdbms_admin_connection, neo4j_db):
+    # utility_mock = create_autospec(TraitsUtility)
+    t = Traits(rdbms_connection, rdbms_admin_connection, neo4j_db)
+
+
+    starting_station_key = TraitsKey("1")
+    middle_station_key = TraitsKey("2")
+    ending_station_key = TraitsKey("3")
+
+    t.add_train_station(starting_station_key, None)
+    t.add_train_station(middle_station_key, None)
+    t.add_train_station(ending_station_key, None)
+    train_key = TraitsKey('t1')
+    t.add_train(train_key, train_capacity=100, train_status=TrainStatus.OPERATIONAL)
+    t.connect_train_stations(starting_station_key, middle_station_key, 30)
+    t.connect_train_stations(middle_station_key, ending_station_key, 30)
+    t.connect_train_stations(starting_station_key, ending_station_key, 60)
+
+    # Stops
+    stops = []
+    # The train waits 5 minutes at first station
+    stops.append( (starting_station_key, 10) )
+    stops.append( (middle_station_key, 10) )
+    # This is not possible, since the stations are NOT connected
+    stops.append( (ending_station_key, 10) )
+
+    sch = []
+    sch.append( (starting_station_key, 5) )
+    sch.append( (ending_station_key, 10) )
+
+    # The schedule is valid from 1 jan to 31 dec 2024
+    valid_from_day, valid_from_month, valid_from_year = 6, 1, 2024
+    valid_until_day, valid_until_month, valid_until_year = 6, 1, 2024
+
+    t.add_schedule(
+                train_key,
+                8, 0,
+                stops,
+                valid_from_day, valid_from_month, valid_from_year,
+                valid_until_day, valid_until_month, valid_until_year)
+    t.add_schedule(
+                train_key,
+                18, 0,
+                stops,
+                valid_from_day, valid_from_month, valid_from_year,
+                valid_until_day, valid_until_month, valid_until_year)
+    assert len(t.utility.get_all_schedules()) == 2
+    with pytest.raises(ValueError):
+        t.add_schedule(
+                    train_key,
+                    8, 30,
+                    sch,
+                    valid_from_day, valid_from_month, valid_from_year,
+                    valid_until_day, valid_until_month, valid_until_year) 

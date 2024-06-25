@@ -294,45 +294,65 @@ class TraitsUtility(TraitsUtilityInterface):
     def is_schedule_feasible(self, train_id: int, start_time: time, end_time: time, valid_from: date, valid_until: date) -> bool:
         # Check if a train is already scheduled during this time
         cursor = self.rdbms_connection.cursor()
-        
         new_start_time = timedelta(hours=int(start_time.split(':')[0]), 
                            minutes=int(start_time.split(':')[1]), 
                            seconds=int(start_time.split(':')[2]))
         new_end_time = timedelta(hours=int(end_time.split(':')[0]), 
                          minutes=int(end_time.split(':')[1]), 
                          seconds=int(end_time.split(':')[2]))
-        print(new_start_time, new_end_time)
         
+        # The schedule went onto the next day
+        if (new_end_time<new_start_time):
+            return False
         cursor.execute(
             """
-            SELECT COUNT(*) FROM Schedules
+            SELECT start_time, end_time FROM Schedules
             WHERE train_id = %s
             AND (
                 (%s BETWEEN valid_from AND valid_until OR %s BETWEEN valid_from AND valid_until)
                 OR
                 (valid_from BETWEEN %s AND %s OR valid_until BETWEEN %s AND %s)
-            )
-            AND (
-                (%s < end_time AND %s > start_time)
             );
-            """, (train_id, valid_from, valid_until, valid_from, valid_until, valid_from, valid_until, new_start_time, new_end_time, )
+            """, (train_id, valid_from, valid_until, valid_from, valid_until, valid_from, valid_until)
         )
-        overlapping_schedules = cursor.fetchone()[0]
+        same_day_schedules = cursor.fetchall()
+        
+        
+        if same_day_schedules:
+            for sch in same_day_schedules:
+                if (new_start_time <= sch[1]  and new_end_time >= sch[0]):
+            # if overlapping_schedules > 0:
+                    return False
+        
 
-        if overlapping_schedules > 0:
-            return False
+        prev_date = datetime.strptime(valid_from, "%Y-%m-%d") - timedelta(days=1)
         # Ensure at least 6 hours before next day's first start
         cursor.execute(
             """
-            SELECT start_time FROM Schedules 
-            WHERE train_id = %s AND start_time > %s 
-            ORDER BY start_time ASC LIMIT 1;
-            """, (train_id, start_time)
+            SELECT end_time FROM Schedules 
+            WHERE train_id = %s AND  (%s BETWEEN valid_from AND valid_until)
+            ORDER BY end_time DESC LIMIT 1;
+            """, (train_id, prev_date,)
         )
-        next_start_time = cursor.fetchone()
-        if next_start_time:
-            next_start_time = next_start_time[0]
-            if (next_start_time - end_time).total_seconds() < 21600:
+        # If new schedule is within six hours of previous day
+        last_end_time = cursor.fetchone()
+        if last_end_time:
+            if (last_end_time[0] - new_start_time).total_seconds() > 64800:
+                return False
+            
+        next_date = datetime.strptime(valid_from, "%Y-%m-%d") + timedelta(days=1)
+        # Ensure at least 6 hours before next day's first start
+        cursor.execute(
+            """
+            SELECT end_time FROM Schedules 
+            WHERE train_id = %s AND  (%s BETWEEN valid_from AND valid_until)
+            ORDER BY start_time ASC LIMIT 1;
+            """, (train_id, next_date,)
+        )
+        # If new schedule is within six hours of previous day
+        first_start_time = cursor.fetchone()
+        if first_start_time:
+            if (new_end_time - first_start_time[0]).total_seconds() > 64800:
                 return False
 
         return True
