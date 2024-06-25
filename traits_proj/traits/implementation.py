@@ -37,7 +37,7 @@ class TraitsUtility(TraitsUtilityInterface):
                 date DATE NOT NULL,
                 start_time TIME NOT NULL,
                 end_time TIME NOT NULL,
-                FOREIGN KEY (train_id) REFERENCES Trains(train_id) ON DELETE CASCADE,
+                FOREIGN KEY (train_id) REFERENCES Trains(train_id),
                 FOREIGN KEY (starting_station_id) REFERENCES Stations(station_id),
                 FOREIGN KEY (ending_station_id) REFERENCES Stations(station_id)
             );""",
@@ -49,7 +49,7 @@ class TraitsUtility(TraitsUtilityInterface):
                 reserved_seat BOOLEAN NOT NULL DEFAULT FALSE,
                 price INT NOT NULL,
                 FOREIGN KEY (user_id) REFERENCES Users(user_id) ON DELETE CASCADE,
-                FOREIGN KEY (trip_id) REFERENCES Trips(trip_id) ON DELETE CASCADE
+                FOREIGN KEY (trip_id) REFERENCES Trips(trip_id)
             );""",
             """CREATE TABLE IF NOT EXISTS Reservations (
                 reservation_id INT PRIMARY KEY AUTO_INCREMENT,
@@ -75,6 +75,7 @@ class TraitsUtility(TraitsUtilityInterface):
                 FOREIGN KEY (starting_station_id) REFERENCES Stations(station_id) ON DELETE CASCADE,
                 FOREIGN KEY (ending_station_id) REFERENCES Stations(station_id) ON DELETE CASCADE
             );""",
+            
             # Views
             """ CREATE VIEW IF NOT EXISTS Purchase AS
                 SELECT
@@ -106,6 +107,23 @@ class TraitsUtility(TraitsUtilityInterface):
                 SET minutes_diff = TIMESTAMPDIFF(MINUTE, start_time, end_time);
                 SET NEW.price = (minutes_diff / 2) + 2;
             END;""",
+            """ 
+            DROP TRIGGER IF EXISTS delete_on_trians;
+            CREATE TRIGGER delete_on_trians
+            BEFORE DELETE ON Trains
+            FOR EACH ROW
+            BEGIN
+                DECLARE cur_date DATE;
+                SET cur_date = CURDATE();
+                DELETE r FROM Reservations r JOIN Tickets t ON r.ticket_id = t.ticket_id
+                JOIN Trips tr ON t.trip_id = tr.trip_id
+                WHERE tr.train_id = OLD.train_id AND tr.date >= cur_date;
+                DELETE t FROM Tickets t JOIN Trips tr ON t.trip_id = tr.trip_id
+                WHERE tr.train_id = OLD.train_id AND tr.date >= cur_date;
+                DELETE FROM Trips WHERE train_id = OLD.train_id AND date >= cur_date;
+                DELETE FROM Schedules WHERE train_id = OLD.train_id AND valid_from >= cur_date; 
+            END;
+            """
             
             f"DROP USER IF EXISTS 'anonymous'@'%';",
             f"CREATE USER 'anonymous'@'%' IDENTIFIED BY '';"
@@ -135,6 +153,7 @@ class TraitsUtility(TraitsUtilityInterface):
         """
         Return all the users stored in the database
         """
+        self.rdbms_admin_connection.reconnect()
         cursor = self.rdbms_admin_connection.cursor()
         cursor.execute("SELECT * FROM Users")
         users = cursor.fetchall()
@@ -189,7 +208,8 @@ class TraitsUtility(TraitsUtilityInterface):
                 cursor.execute("SELECT * FROM Trips WHERE trip_id = %s", (connect['trip_id'],))
                 rec = cursor.fetchall()
                 # return trip_ids only
-                details.append(rec[0])
+                if (rec):
+                    details.append(rec[0])
             detailed_routes.append(details)
         return detailed_routes
     
@@ -444,7 +464,7 @@ class Traits(TraitsInterface):
             (user[0], connection[0], also_reserve_seats)
         )
         ticket_id = cursor.lastrowid
-
+        
         if also_reserve_seats:
             # Check available seats
             available_seats = self.utility.check_available_seats(connection[0])
@@ -455,7 +475,6 @@ class Traits(TraitsInterface):
                 )
             else:
                 raise ValueError
-
         self.rdbms_connection.commit()
         return cursor.lastrowid
 
@@ -469,7 +488,9 @@ class Traits(TraitsInterface):
         user = cursor.fetchone()
         if not user:
             return []
-        cursor.execute("""SELECT *
+        
+        cursor.execute("""
+                       SELECT *
                         FROM Purchase
                         WHERE user_email = %s
                         ORDER BY purchase_time DESC;
@@ -501,9 +522,15 @@ class Traits(TraitsInterface):
         if cursor.fetchone()[0] == 0:
             raise ValueError
         # Implementation here
-        cursor.execute("DELETE FROM Users WHERE email = %s;", (user_email,))
-        # The data should delete itself on the basis of cascade
-        self.rdbms_admin_connection.commit()
+        cursor.execute("SET AUTOCOMMIT = 0;")
+        cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE;")
+        cursor.execute("""
+                       START TRANSACTION;
+                       DELETE FROM Users WHERE email = %s;
+                       COMMIT;
+                       """, (user_email,))
+        # The data should delete itself on the basis of cascade and trigger
+       
 
     def add_train(self, train_key: TraitsKey, train_capacity: int, train_status: TrainStatus) -> None:
         """
@@ -517,10 +544,10 @@ class Traits(TraitsInterface):
             VALUES (%s, %s, %s);
             """
             
-            rec = cursor.execute(insert_train_query, (train_key.to_string(),  train_capacity, train_status.value))
+            cursor.execute(insert_train_query, (train_key.to_string(),  train_capacity, train_status.value))
 
             self.rdbms_admin_connection.commit()
-            return rec
+            return cursor.lastrowid
         except Exception as ex:
             raise ValueError
         
@@ -559,10 +586,16 @@ class Traits(TraitsInterface):
         # Implementation here
         cursor = self.rdbms_admin_connection.cursor()
         try:
+            cursor.execute("SET AUTOCOMMIT = 0;")
+            cursor.execute("SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE;")
             # Delete the train and all related records (assuming cascading deletes are set up)
-            delete_train_query = "DELETE FROM Trains WHERE train_name = %s"
+            delete_train_query = """
+                START TRANSACTION;
+                DELETE FROM Trains WHERE train_name = %s;
+                COMMIT;
+                """
             cursor.execute(delete_train_query, (train_key.to_string(),))
-            self.rdbms_admin_connection.commit()
+            # self.rdbms_admin_connection.commit()
         except Exception as e:
             self.rdbms_admin_connection.rollback()
             raise e
