@@ -32,6 +32,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
+        sudo apt-get install -y libmariadb-dev
         pip install -r requirements.txt
 
     - name: Run tests with coverage
