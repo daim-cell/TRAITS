@@ -37,7 +37,7 @@ jobs:
     - name: Run tests with coverage
       run: |
         pip install pytest-cov
-        pytest --cov= ./traits_proj/tests/
+        pytest --cov= ./tests/
         
     - name: Upload coverage report
       uses: actions/upload-artifact@v2
