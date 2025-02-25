@@ -5,7 +5,8 @@
 
 ### **What is the schema of your Relational DB? How did you obtain it?**
 
-![Alt text][image1.png]
+![Alt text](image1.png)
+
 
 The schema is defined in the generate\_sql\_initialization\_code method and consists of the following tables:
 
